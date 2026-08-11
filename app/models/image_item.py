@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from app.models.watermark import WatermarkMatch
+
 
 @dataclass(frozen=True, slots=True)
 class ImageItem:
@@ -20,6 +22,7 @@ class ImageItem:
     size_bytes: int
     export_to_x: bool = False
     export_to_instagram: bool = False
+    watermark_match: WatermarkMatch | None = None
 
     @property
     def dimensions(self) -> tuple[int, int]:
