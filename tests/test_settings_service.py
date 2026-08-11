@@ -70,6 +70,19 @@ def test_invalid_values_are_safely_normalized(tmp_path: Path) -> None:
     assert settings.background_color == "#000000"
 
 
+def test_invalid_path_does_not_discard_other_valid_settings(tmp_path: Path) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text(
+        json.dumps({"input_directory": "bad\u0000path", "jpeg_quality": 84}),
+        encoding="utf-8",
+    )
+
+    settings = SettingsService(path).load()
+
+    assert settings.input_directory is None
+    assert settings.jpeg_quality == 84
+
+
 def test_quality_is_clamped_at_both_bounds(tmp_path: Path) -> None:
     path = tmp_path / "settings.json"
     path.write_text('{"jpeg_quality": 1}', encoding="utf-8")

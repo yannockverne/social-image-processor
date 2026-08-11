@@ -6,7 +6,7 @@ from dataclasses import replace
 import os
 from pathlib import Path
 
-from PySide6.QtCore import QItemSelection, QThreadPool, Qt
+from PySide6.QtCore import QItemSelection, QSignalBlocker, QThreadPool, QTimer, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView, QCheckBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
@@ -47,10 +47,10 @@ class MainWindow(QMainWindow):
         self._restore_settings()
         self.setWindowTitle("Social Image Processor")
         self.resize(1280, 800)
-        if self.watermark_path.text():
-            self.refresh_watermarks()
-        elif self.input_path.text():
-            self.scan_input()
+        # Restored paths must not start workers while the window is still being
+        # constructed.  In particular, this avoids a native Qt shutdown seen on
+        # Windows when the second launch restores a non-empty folder path.
+        QTimer.singleShot(0, self._scan_restored_paths)
 
     def _build_ui(self) -> None:
         central = QWidget()
@@ -150,11 +150,41 @@ class MainWindow(QMainWindow):
         return edit, button
 
     def _restore_settings(self) -> None:
-        for edit, path in ((self.input_path, self.settings.input_directory), (self.output_path, self.settings.output_directory), (self.watermark_path, self.settings.watermark_directory)):
-            edit.setText(str(path) if path else "")
-        self.quality.setValue(self.settings.jpeg_quality)
-        self.watermark_enabled.setChecked(self.settings.watermark_enabled)
+        controls = (self.input_path, self.output_path, self.watermark_path,
+                    self.quality, self.watermark_enabled)
+        blockers = [QSignalBlocker(control) for control in controls]
+        try:
+            for edit, path in ((self.input_path, self.settings.input_directory), (self.output_path, self.settings.output_directory), (self.watermark_path, self.settings.watermark_directory)):
+                edit.setText(str(path) if path else "")
+            self.quality.setValue(self.settings.jpeg_quality)
+            self.watermark_enabled.setChecked(self.settings.watermark_enabled)
+        finally:
+            del blockers
         self.quality.valueChanged.connect(self.save_settings)
+
+    @staticmethod
+    def _existing_directory(text: str) -> Path | None:
+        """Return a restored/entered directory only when it is safe to scan."""
+        if not text.strip():
+            return None
+        try:
+            path = Path(text)
+            return path if path.is_dir() else None
+        except (OSError, ValueError):
+            return None
+
+    def _scan_restored_paths(self) -> None:
+        """Start any initial scans after construction and ignore stale paths."""
+        watermark = self._existing_directory(self.watermark_path.text())
+        input_directory = self._existing_directory(self.input_path.text())
+        if self.watermark_path.text() and watermark is None:
+            self.log.append("Saved watermark folder is unavailable; select a valid folder to scan.")
+        if self.input_path.text() and input_directory is None:
+            self.log.append("Saved input folder is unavailable; select a valid folder to scan.")
+        if watermark is not None:
+            self.refresh_watermarks()
+        elif input_directory is not None:
+            self.scan_input()
 
     def save_settings(self) -> None:
         def path(text): return Path(text) if text.strip() else None
@@ -167,7 +197,10 @@ class MainWindow(QMainWindow):
 
     def refresh_watermarks(self) -> None:
         self.save_settings()
-        path = Path(self.watermark_path.text())
+        path = self._existing_directory(self.watermark_path.text())
+        if path is None:
+            self.catalog = WatermarkCatalog()
+            return
         worker = FunctionWorker(scan_watermark_folder, path)
         worker.signals.result.connect(self._watermarks_ready)
         worker.signals.error.connect(self._show_worker_error)
@@ -185,9 +218,16 @@ class MainWindow(QMainWindow):
             self.scan_input()
 
     def scan_input(self) -> None:
-        self.save_settings(); self.scan_generation += 1; generation = self.scan_generation
+        self.save_settings()
+        path = self._existing_directory(self.input_path.text())
+        if path is None:
+            self.scan_generation += 1
+            self.model.replace_items((), self.scan_generation)
+            self.preview.clear()
+            return
+        self.scan_generation += 1; generation = self.scan_generation
         self.preview.clear()
-        worker = FunctionWorker(scan_input_folder, Path(self.input_path.text()), self.catalog)
+        worker = FunctionWorker(scan_input_folder, path, self.catalog)
         worker.signals.result.connect(lambda result, g=generation: self._scan_ready(g, result))
         worker.signals.error.connect(self._show_worker_error)
         self.pool.start(worker)

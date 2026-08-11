@@ -46,7 +46,11 @@ class SettingsService:
 
         if not isinstance(payload, dict):
             return ApplicationSettings()
-        return self._from_mapping(payload)
+        try:
+            return self._from_mapping(payload)
+        except (OSError, TypeError, ValueError):
+            # Settings are convenience state, never a reason to prevent launch.
+            return ApplicationSettings()
 
     def save(self, settings: ApplicationSettings) -> None:
         """Atomically persist *settings*, creating its parent directory."""
@@ -91,7 +95,12 @@ class SettingsService:
 
     @staticmethod
     def _path(value: Any) -> Path | None:
-        return Path(value) if isinstance(value, str) and value else None
+        if not isinstance(value, str) or not value or "\x00" in value:
+            return None
+        try:
+            return Path(value)
+        except (OSError, TypeError, ValueError):
+            return None
 
     @staticmethod
     def _serialize_path(value: Path | None) -> str | None:
