@@ -58,6 +58,58 @@ def test_window_constructs_and_restores_settings(application, tmp_path: Path) ->
     window.close()
 
 
+def test_launch_with_saved_paths_defers_and_safely_restores_scans(
+    application, tmp_path: Path, monkeypatch
+) -> None:
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    watermark_directory = tmp_path / "watermarks"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    watermark_directory.mkdir()
+    Image.new("RGB", (2, 2)).save(input_directory / "source.jpg")
+    Image.new("RGBA", (2, 2)).save(watermark_directory / "mark.png")
+    service = SettingsService(tmp_path / "settings.json")
+    service.save(ApplicationSettings(
+        input_directory, output_directory, watermark_directory, 87, True
+    ))
+    starts = []
+    original_start = MainWindow._scan_restored_paths
+    monkeypatch.setattr(
+        MainWindow, "_scan_restored_paths",
+        lambda self: (starts.append(True), original_start(self))[-1],
+    )
+
+    window = MainWindow(service)
+    assert starts == []
+    assert window.input_path.text() == str(input_directory)
+    application.processEvents()
+    assert starts == [True]
+    assert window.pool.waitForDone(5000)
+    application.processEvents()
+    assert window.pool.waitForDone(5000)
+    application.processEvents()
+    assert [item.path.name for item in window.model.items] == ["source.jpg"]
+    window.close()
+
+
+def test_launch_with_stale_saved_paths_does_not_start_workers(
+    application, tmp_path: Path, monkeypatch
+) -> None:
+    service = SettingsService(tmp_path / "settings.json")
+    missing = tmp_path / "no-longer-there"
+    service.save(ApplicationSettings(missing, tmp_path, missing, 92, True))
+
+    window = MainWindow(service)
+    starts = []
+    monkeypatch.setattr(window.pool, "start", lambda worker: starts.append(worker))
+    application.processEvents()
+
+    assert starts == []
+    assert "unavailable" in window.log.toPlainText()
+    window.close()
+
+
 def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) -> None:
     window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 4)
     window.model.set_platform_all(ImageTableModel.X, True)
