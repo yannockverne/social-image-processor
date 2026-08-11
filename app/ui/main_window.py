@@ -63,6 +63,11 @@ class MainWindow(QMainWindow):
         # reliably keep the Python wrapper (and its QObject signal bridge)
         # alive on every PySide6 platform.  Retain each worker explicitly.
         self._active_workers: set[FunctionWorker | BatchWorker] = set()
+        # Every source of a path scan (restoration, Browse, and manual edits)
+        # feeds this queue.  A zero-duration turn coalesces callbacks which Qt
+        # may deliver in a platform-dependent order before creating a worker.
+        self._pending_scans: dict[str, Path | None] = {}
+        self._scan_dispatch_scheduled = False
         self.scan_generation = 0
         self.watermark_generation = 0
         self.preview_generation = 0
@@ -298,6 +303,28 @@ class MainWindow(QMainWindow):
         elif input_directory is not None:
             self.scan_input()
 
+    def _request_scan(self, kind: str) -> None:
+        """Coalesce path scan requests made during the current Qt event turn."""
+        edit = self.input_path if kind == "input" else self.watermark_path
+        self._pending_scans[kind] = self._existing_directory(edit.text())
+        if self._scan_dispatch_scheduled:
+            return
+        self._scan_dispatch_scheduled = True
+        QTimer.singleShot(0, self._dispatch_pending_scans)
+
+    def _dispatch_pending_scans(self) -> None:
+        pending, self._pending_scans = self._pending_scans, {}
+        self._scan_dispatch_scheduled = False
+        # Watermarks affect input scan results, so preserve the restoration
+        # ordering and let watermark completion request any necessary input scan.
+        for kind in ("watermark", "input"):
+            if kind not in pending:
+                continue
+            if kind == "watermark":
+                self._start_watermark_scan(pending[kind])
+            else:
+                self._start_input_scan(pending[kind])
+
     def save_settings(self) -> None:
         def path(text):
             if not text.strip():
@@ -322,9 +349,11 @@ class MainWindow(QMainWindow):
 
     def refresh_watermarks(self) -> None:
         self.save_settings()
+        self._request_scan("watermark")
+
+    def _start_watermark_scan(self, path: Path | None) -> None:
         self.watermark_generation += 1
         generation = self.watermark_generation
-        path = self._existing_directory(self.watermark_path.text())
         if path is None:
             self.catalog = WatermarkCatalog()
             return
@@ -361,7 +390,9 @@ class MainWindow(QMainWindow):
 
     def scan_input(self) -> None:
         self.save_settings()
-        path = self._existing_directory(self.input_path.text())
+        self._request_scan("input")
+
+    def _start_input_scan(self, path: Path | None) -> None:
         if path is None:
             self.scan_generation += 1
             self.model.replace_items((), self.scan_generation)
