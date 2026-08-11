@@ -136,3 +136,29 @@ def test_export_never_overwrites_an_existing_output(tmp_path: Path) -> None:
 
     assert output_path.read_bytes() == b"existing output"
     assert not list(tmp_path.glob(f".{output_path.name}.*.tmp"))
+
+
+def test_safe_export_fsyncs_a_writable_file_for_windows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Windows reports EBADF when fsync receives a read-only descriptor."""
+    source_path = tmp_path / "source.png"
+    output_path = tmp_path / "X_source.jpg"
+    Image.new("RGB", (3, 3)).save(source_path)
+    path_type = type(tmp_path)
+    original_open = path_type.open
+    opened_modes: list[str] = []
+
+    def record_open(self: Path, mode: str = "r", *args: object, **kwargs: object):
+        opened_modes.append(mode)
+        return original_open(self, mode, *args, **kwargs)
+
+    monkeypatch.setattr(path_type, "open", record_open)
+
+    export_jpeg(source_path, output_path)
+
+    assert "rb+" in opened_modes
+    assert "rb" not in opened_modes
+    assert "xb" in opened_modes
+    with Image.open(output_path) as generated:
+        generated.verify()
