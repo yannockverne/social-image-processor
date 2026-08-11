@@ -23,6 +23,14 @@ class JPEGExport:
     size_bytes: int
 
 
+@dataclass(frozen=True, slots=True)
+class PreparedJPEG:
+    """A rendered RGB image and safe metadata shared by platform exports."""
+
+    image: Image.Image
+    icc_profile: bytes | None = None
+
+
 def composite_full_frame(source: Image.Image, watermark: Image.Image) -> Image.Image:
     """Alpha-composite an exact-size watermark at origin without transforms."""
     if source.size != watermark.size:
@@ -73,6 +81,17 @@ def export_jpeg(
     if not 1 <= quality <= 100:
         raise ValueError("JPEG quality must be between 1 and 100")
 
+    prepared = prepare_jpeg(source_path, watermark_path=watermark_path, background=background)
+    return export_prepared_jpeg(prepared, output_path, quality=quality)
+
+
+def prepare_jpeg(
+    source_path: Path,
+    *,
+    watermark_path: Path | None = None,
+    background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
+) -> PreparedJPEG:
+    """Decode and render a source once for one or more identical exports."""
     with Image.open(source_path) as source:
         source.load()
         icc_profile = source.info.get("icc_profile")
@@ -83,9 +102,17 @@ def export_jpeg(
             with Image.open(watermark_path) as watermark:
                 watermark.load()
                 rendered = render_for_jpeg(source, watermark, background)
+    return PreparedJPEG(rendered, safe_icc_profile)
 
-    _atomic_save_jpeg(rendered, output_path, quality, safe_icc_profile)
-    return JPEGExport(output_path, rendered.size, output_path.stat().st_size)
+
+def export_prepared_jpeg(
+    prepared: PreparedJPEG, output_path: Path, *, quality: int = 92
+) -> JPEGExport:
+    """Safely write an already-rendered image without decoding it again."""
+    if not 1 <= quality <= 100:
+        raise ValueError("JPEG quality must be between 1 and 100")
+    _atomic_save_jpeg(prepared.image, output_path, quality, prepared.icc_profile)
+    return JPEGExport(output_path, prepared.image.size, output_path.stat().st_size)
 
 
 def _atomic_save_jpeg(
