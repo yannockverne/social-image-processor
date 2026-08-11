@@ -138,12 +138,17 @@ def _atomic_save_jpeg(
         if icc_profile is not None:
             save_options["icc_profile"] = icc_profile
         image.save(temporary_path, **save_options)
-        with temporary_path.open("rb") as saved_file:
+        # Windows rejects fsync() on a read-only descriptor with EBADF.  Open the
+        # completed temporary JPEG for update even though no further writes are
+        # made, so the durability flush is portable.
+        with temporary_path.open("rb+") as saved_file:
             os.fsync(saved_file.fileno())
 
-        reservation = os.open(output_path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
-        destination_reserved = True
-        os.close(reservation)
+        # The exclusive placeholder prevents replacing an output that appeared
+        # since batch name allocation.  Close it before os.replace(): Windows
+        # cannot replace an open file.
+        with output_path.open("xb"):
+            destination_reserved = True
         temporary_path.replace(output_path)
         destination_reserved = False
     except (OSError, ValueError) as error:
