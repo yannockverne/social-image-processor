@@ -13,7 +13,9 @@ Dimensions = tuple[int, int]
 class WatermarkCatalog:
     """Immutable lookup of watermark paths by raw stored dimensions."""
 
-    def __init__(self, entries: Mapping[Dimensions, Iterable[Path]] | None = None) -> None:
+    def __init__(
+        self, entries: Mapping[Dimensions, Iterable[Path]] | None = None
+    ) -> None:
         entries = entries or {}
         self._entries = {
             dimensions: tuple(sorted(paths, key=_path_sort_key))

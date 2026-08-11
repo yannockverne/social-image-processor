@@ -4,16 +4,21 @@ import pytest
 
 Image = pytest.importorskip("PIL.Image")
 
-from app.core.watermarking import WatermarkCatalog
-from app.models.watermark import WatermarkStatus
-from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
+from app.core.watermarking import WatermarkCatalog  # noqa: E402
+from app.models.watermark import WatermarkStatus  # noqa: E402
+from app.services.folder_scanner import (  # noqa: E402
+    scan_input_folder,
+    scan_watermark_folder,
+)
 
 
 def _image(path: Path, size: tuple[int, int], mode: str = "RGB") -> None:
     Image.new(mode, size, 0).save(path)
 
 
-def test_source_scan_is_non_recursive_case_insensitive_and_sorted(tmp_path: Path) -> None:
+def test_source_scan_is_non_recursive_case_insensitive_and_sorted(
+    tmp_path: Path,
+) -> None:
     _image(tmp_path / "z.JPG", (30, 20))
     _image(tmp_path / "A.png", (10, 5))
     _image(tmp_path / "b.JpEg", (20, 10))
