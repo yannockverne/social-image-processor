@@ -34,7 +34,9 @@ class FunctionWorker(QRunnable):
             self.signals.finished.emit(self)
 
 
-def render_preview_bytes(source: Path, size: tuple[int, int], watermark: Path | None = None) -> bytes:
+def render_preview_bytes(
+    source: Path, size: tuple[int, int], watermark: Path | None = None
+) -> bytes:
     """Return a bounded PNG preview; only exact-match paths are supplied by UI."""
     with Image.open(source) as image:
         image.load()

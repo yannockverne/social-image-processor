@@ -13,7 +13,9 @@ class PreviewPanel(QWidget):
         self.image.setAlignment(Qt.AlignCenter)
         self.image.setMinimumSize(300, 240)
         self.image.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.image.setStyleSheet("QLabel { background: palette(base); border: 1px solid palette(mid); }")
+        self.image.setStyleSheet(
+            "QLabel { background: palette(base); border: 1px solid palette(mid); }"
+        )
         self.status = QLabel("")
         self.status.setAlignment(Qt.AlignCenter)
         layout = QVBoxLayout(self)
@@ -29,7 +31,11 @@ class PreviewPanel(QWidget):
 
     def show_pixmap(self, pixmap: QPixmap) -> None:
         self.image.setText("")
-        self.image.setPixmap(pixmap.scaled(self.image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+        self.image.setPixmap(
+            pixmap.scaled(
+                self.image.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation
+            )
+        )
 
     def clear(self) -> None:
         self.title.setText("Preview")

@@ -81,7 +81,9 @@ def export_jpeg(
     if not 1 <= quality <= 100:
         raise ValueError("JPEG quality must be between 1 and 100")
 
-    prepared = prepare_jpeg(source_path, watermark_path=watermark_path, background=background)
+    prepared = prepare_jpeg(
+        source_path, watermark_path=watermark_path, background=background
+    )
     return export_prepared_jpeg(prepared, output_path, quality=quality)
 
 

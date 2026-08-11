@@ -16,7 +16,15 @@ class ImageTableModel(QAbstractTableModel):
     """A lightweight metadata model which never retains source rasters."""
 
     THUMBNAIL, FILENAME, DIMENSIONS, SIZE, X, INSTAGRAM, WATERMARK = range(7)
-    HEADERS = ("Preview", "Filename", "Dimensions", "Size", "X", "Instagram", "Watermark")
+    HEADERS = (
+        "Preview",
+        "Filename",
+        "Dimensions",
+        "Size",
+        "X",
+        "Instagram",
+        "Watermark",
+    )
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -50,7 +58,11 @@ class ImageTableModel(QAbstractTableModel):
                 return format_bytes(item.size_bytes)
             if column == self.WATERMARK:
                 status = item.watermark_match.status if item.watermark_match else None
-                return {WatermarkStatus.EXACT: "✓ Exact", WatermarkStatus.MISSING: "⚠ Missing", WatermarkStatus.AMBIGUOUS: "⚠ Ambiguous"}.get(status, "—")
+                return {
+                    WatermarkStatus.EXACT: "✓ Exact",
+                    WatermarkStatus.MISSING: "⚠ Missing",
+                    WatermarkStatus.AMBIGUOUS: "⚠ Ambiguous",
+                }.get(status, "—")
         if role == Qt.CheckStateRole:
             if column == self.X:
                 return Qt.Checked if item.export_to_x else Qt.Unchecked
@@ -59,7 +71,13 @@ class ImageTableModel(QAbstractTableModel):
         if role == Qt.ForegroundRole and column == self.WATERMARK:
             status = item.watermark_match.status if item.watermark_match else None
             return QColor("#67d391" if status is WatermarkStatus.EXACT else "#ffb454")
-        if role == Qt.TextAlignmentRole and column in (self.DIMENSIONS, self.SIZE, self.X, self.INSTAGRAM, self.WATERMARK):
+        if role == Qt.TextAlignmentRole and column in (
+            self.DIMENSIONS,
+            self.SIZE,
+            self.X,
+            self.INSTAGRAM,
+            self.WATERMARK,
+        ):
             return Qt.AlignCenter
         return None
 
@@ -74,7 +92,14 @@ class ImageTableModel(QAbstractTableModel):
             return False
         item = self.items[index.row()]
         checked = value == Qt.Checked
-        self.items[index.row()] = replace(item, **({"export_to_x": checked} if index.column() == self.X else {"export_to_instagram": checked}))
+        self.items[index.row()] = replace(
+            item,
+            **(
+                {"export_to_x": checked}
+                if index.column() == self.X
+                else {"export_to_instagram": checked}
+            ),
+        )
         self.dataChanged.emit(index, index, [Qt.CheckStateRole])
         return True
 
@@ -89,7 +114,11 @@ class ImageTableModel(QAbstractTableModel):
         key = "export_to_x" if column == self.X else "export_to_instagram"
         self.items = [replace(item, **{key: selected}) for item in self.items]
         if self.items:
-            self.dataChanged.emit(self.index(0, column), self.index(len(self.items) - 1, column), [Qt.CheckStateRole])
+            self.dataChanged.emit(
+                self.index(0, column),
+                self.index(len(self.items) - 1, column),
+                [Qt.CheckStateRole],
+            )
 
     def set_thumbnail(self, row: int, generation: int, pixmap: QPixmap) -> bool:
         if generation != self.generation or not 0 <= row < len(self.items):
