@@ -199,8 +199,25 @@ class MainWindow(QMainWindow):
 
     def _path_row(self, caption: str, changed=None):
         edit, button = QLineEdit(), QPushButton("Browse…")
+        suppress_browse_editing_finished = False
+
+        def field_changed():
+            if not suppress_browse_editing_finished:
+                changed()
+
+        def user_edited():
+            nonlocal suppress_browse_editing_finished
+            suppress_browse_editing_finished = False
+
+        def begin_browse():
+            nonlocal suppress_browse_editing_finished
+            # Arm this on pressed, before clicking the button can finish the
+            # line edit.  Windows may otherwise deliver editingFinished either
+            # before the native dialog opens or while its callback unwinds.
+            suppress_browse_editing_finished = changed is not None
 
         def browse():
+            begin_browse()
             path = QFileDialog.getExistingDirectory(self, caption, edit.text())
             if path:
                 # Treat the dialog result as one atomic UI commit.  In
@@ -214,9 +231,11 @@ class MainWindow(QMainWindow):
                 if changed:
                     QTimer.singleShot(0, changed)
 
+        button.pressed.connect(begin_browse)
         button.clicked.connect(browse)
         if changed:
-            edit.editingFinished.connect(changed)
+            edit.textEdited.connect(user_edited)
+            edit.editingFinished.connect(field_changed)
         edit.editingFinished.connect(self.save_settings)
         return edit, button
 

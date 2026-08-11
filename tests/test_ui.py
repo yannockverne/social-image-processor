@@ -138,15 +138,21 @@ def test_browse_commits_path_then_defers_exactly_one_scan(
     selected = tmp_path / directory_name
     selected.mkdir()
     starts = []
-    monkeypatch.setattr(
-        QFileDialog, "getExistingDirectory", lambda *_args: str(selected)
-    )
+
+    def select_directory(*_args):
+        getattr(window, path_name).editingFinished.emit()
+        return str(selected)
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", select_directory)
     monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
 
     getattr(window, button_name).click()
 
     assert getattr(window, path_name).text() == str(selected)
     assert starts == []
+    # Windows can deliver this focus-loss signal after the native dialog
+    # callback has committed the selected path.
+    getattr(window, path_name).editingFinished.emit()
     application.processEvents()
     assert len(starts) == 1
     application.processEvents()
@@ -158,13 +164,38 @@ def test_cancelled_browse_does_not_start_scan(
     window, application, monkeypatch, button_name: str
 ) -> None:
     starts = []
-    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *_args: "")
+    path_name = "input_path" if button_name == "input_browse" else "watermark_path"
+
+    def cancel_dialog(*_args):
+        getattr(window, path_name).editingFinished.emit()
+        return ""
+
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", cancel_dialog)
     monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
 
     getattr(window, button_name).click()
+    getattr(window, path_name).editingFinished.emit()
     application.processEvents()
 
     assert starts == []
+
+
+@pytest.mark.parametrize(
+    "path_name",
+    ("input_path", "watermark_path"),
+)
+def test_manual_path_edit_still_starts_one_scan(
+    window, tmp_path: Path, monkeypatch, path_name: str
+) -> None:
+    starts = []
+    monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
+    edit = getattr(window, path_name)
+
+    edit.setText(str(tmp_path))
+    edit.textEdited.emit(str(tmp_path))
+    edit.editingFinished.emit()
+
+    assert len(starts) == 1
 
 
 def test_stale_watermark_scan_result_is_ignored(window) -> None:
