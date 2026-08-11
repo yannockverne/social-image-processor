@@ -38,6 +38,20 @@ def application():
     return QApplication.instance() or QApplication([])
 
 
+def process_deferred_scan(application) -> None:
+    """Run both the scan-source timer and the coalesced dispatch timer."""
+    application.processEvents()
+    application.processEvents()
+
+
+def drain_window_work(application, window) -> None:
+    """Drain deferred scans, workers, and the result callbacks they can enqueue."""
+    for _ in range(6):
+        application.processEvents()
+        assert window.pool.waitForDone(5000)
+    application.processEvents()
+
+
 @pytest.fixture
 def window(application, tmp_path: Path):
     settings = SettingsService(tmp_path / "settings.json")
@@ -46,7 +60,7 @@ def window(application, tmp_path: Path):
     # Drain both queued scan dispatches and their worker completion signals.
     # This also runs after a failed assertion, preventing close protection from
     # turning the original failure into a modal-dialog hang on Windows.
-    for _ in range(3):
+    for _ in range(6):
         application.processEvents()
         widget.pool.waitForDone(5000)
     application.processEvents()
@@ -100,10 +114,7 @@ def test_launch_with_saved_paths_defers_and_safely_restores_scans(
     assert window.input_path.text() == str(input_directory)
     application.processEvents()
     assert starts == [True]
-    assert window.pool.waitForDone(5000)
-    application.processEvents()
-    assert window.pool.waitForDone(5000)
-    application.processEvents()
+    drain_window_work(application, window)
     assert [item.path.name for item in window.model.items] == ["source.jpg"]
     window.close()
 
@@ -159,7 +170,7 @@ def test_browse_commits_path_then_defers_exactly_one_scan(
     # Windows can deliver this focus-loss signal after the native dialog
     # callback has committed the selected path.
     getattr(window, path_name).editingFinished.emit()
-    application.processEvents()
+    process_deferred_scan(application)
     assert len(starts) == 1
     assert isinstance(starts[0], FunctionWorker)
     application.processEvents()
