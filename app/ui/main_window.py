@@ -40,6 +40,10 @@ class MainWindow(QMainWindow):
         self.catalog = WatermarkCatalog()
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(3)
+        # QThreadPool owns the native QRunnable while it runs, but it does not
+        # reliably keep the Python wrapper (and its QObject signal bridge)
+        # alive on every PySide6 platform.  Retain each worker explicitly.
+        self._active_workers: set[FunctionWorker | BatchWorker] = set()
         self.scan_generation = 0
         self.preview_generation = 0
         self.batch_running = False
@@ -56,12 +60,12 @@ class MainWindow(QMainWindow):
         central = QWidget()
         outer = QVBoxLayout(central)
         form = QFormLayout()
-        self.input_path, input_browse = self._path_row("Select input folder", self.scan_input)
-        self.output_path, output_browse = self._path_row("Select output folder")
-        self.watermark_path, watermark_browse = self._path_row("Select watermark folder", self.refresh_watermarks)
-        form.addRow("Input folder", self._row_widget(self.input_path, input_browse))
-        form.addRow("Output folder", self._row_widget(self.output_path, output_browse))
-        form.addRow("Watermark folder", self._row_widget(self.watermark_path, watermark_browse))
+        self.input_path, self.input_browse = self._path_row("Select input folder", self.scan_input)
+        self.output_path, self.output_browse = self._path_row("Select output folder")
+        self.watermark_path, self.watermark_browse = self._path_row("Select watermark folder", self.refresh_watermarks)
+        form.addRow("Input folder", self._row_widget(self.input_path, self.input_browse))
+        form.addRow("Output folder", self._row_widget(self.output_path, self.output_browse))
+        form.addRow("Watermark folder", self._row_widget(self.watermark_path, self.watermark_browse))
         outer.addLayout(form)
 
         options = QHBoxLayout()
@@ -126,8 +130,8 @@ class MainWindow(QMainWindow):
         processing.addWidget(self.progress_text); processing.addWidget(self.progress, 1); processing.addWidget(self.process_button)
         outer.addLayout(processing)
         self.setCentralWidget(central)
-        self.conflicting_controls = [self.input_path, input_browse, self.output_path, output_browse,
-                                     self.watermark_path, watermark_browse, self.watermark_enabled,
+        self.conflicting_controls = [self.input_path, self.input_browse, self.output_path, self.output_browse,
+                                     self.watermark_path, self.watermark_browse, self.watermark_enabled,
                                      self.quality, self.table, self.process_button]
 
     @staticmethod
@@ -140,14 +144,30 @@ class MainWindow(QMainWindow):
         def browse():
             path = QFileDialog.getExistingDirectory(self, caption, edit.text())
             if path:
+                # Treat the dialog result as one atomic UI commit.  In
+                # particular, do not let setText participate in a field signal
+                # chain which can start a worker while the native dialog's
+                # callback is still unwinding.
+                blocker = QSignalBlocker(edit)
                 edit.setText(path)
-                if changed: changed()
+                del blocker
                 self.save_settings()
+                if changed:
+                    QTimer.singleShot(0, changed)
         button.clicked.connect(browse)
         if changed:
             edit.editingFinished.connect(changed)
         edit.editingFinished.connect(self.save_settings)
         return edit, button
+
+    def _start_worker(self, worker: FunctionWorker | BatchWorker) -> None:
+        """Start *worker* while retaining its runnable and signal bridge."""
+        self._active_workers.add(worker)
+        worker.signals.finished.connect(self._worker_finished)
+        self.pool.start(worker)
+
+    def _worker_finished(self, worker: FunctionWorker | BatchWorker) -> None:
+        self._active_workers.discard(worker)
 
     def _restore_settings(self) -> None:
         controls = (self.input_path, self.output_path, self.watermark_path,
@@ -204,7 +224,7 @@ class MainWindow(QMainWindow):
         worker = FunctionWorker(scan_watermark_folder, path)
         worker.signals.result.connect(self._watermarks_ready)
         worker.signals.error.connect(self._show_worker_error)
-        self.pool.start(worker)
+        self._start_worker(worker)
 
     def _watermarks_ready(self, result) -> None:
         self.catalog = result.catalog
@@ -230,7 +250,7 @@ class MainWindow(QMainWindow):
         worker = FunctionWorker(scan_input_folder, path, self.catalog)
         worker.signals.result.connect(lambda result, g=generation: self._scan_ready(g, result))
         worker.signals.error.connect(self._show_worker_error)
-        self.pool.start(worker)
+        self._start_worker(worker)
 
     def _scan_ready(self, generation: int, result) -> None:
         if generation != self.scan_generation: return
@@ -240,7 +260,7 @@ class MainWindow(QMainWindow):
         for row, item in enumerate(result.images):
             worker = FunctionWorker(render_preview_bytes, item.path, (120, 70))
             worker.signals.result.connect(lambda data, r=row, g=generation: self._thumbnail_ready(g, r, data))
-            self.pool.start(worker)
+            self._start_worker(worker)
 
     def _thumbnail_ready(self, generation: int, row: int, data: bytes) -> None:
         pixmap = QPixmap(); pixmap.loadFromData(data)
@@ -266,7 +286,7 @@ class MainWindow(QMainWindow):
         worker = FunctionWorker(render_preview_bytes, item.path, (900, 700), watermark)
         worker.signals.result.connect(lambda data, g=generation: self._preview_ready(g, data))
         worker.signals.error.connect(lambda message, g=generation: self._preview_error(g, message))
-        self.pool.start(worker)
+        self._start_worker(worker)
 
     def _preview_ready(self, generation: int, data: bytes) -> None:
         if generation != self.preview_generation: return
@@ -295,8 +315,8 @@ class MainWindow(QMainWindow):
         worker = BatchWorker(processor)
         worker.signals.event.connect(self._batch_event)
         worker.signals.error.connect(self._show_worker_error)
-        worker.signals.finished.connect(lambda: self._set_batch_running(False))
-        self.pool.start(worker)
+        worker.signals.finished.connect(lambda _worker: self._set_batch_running(False))
+        self._start_worker(worker)
 
     def _batch_event(self, event) -> None:
         if isinstance(event, ProgressUpdate):
