@@ -15,7 +15,7 @@ class WorkerSignals(QObject):
     result = Signal(object)
     event = Signal(object)
     error = Signal(str)
-    finished = Signal()
+    finished = Signal(object)
 
 
 class FunctionWorker(QRunnable):
@@ -31,7 +31,7 @@ class FunctionWorker(QRunnable):
         except Exception as error:
             self.signals.error.emit(f"{type(error).__name__}: {error}")
         finally:
-            self.signals.finished.emit()
+            self.signals.finished.emit(self)
 
 
 def render_preview_bytes(source: Path, size: tuple[int, int], watermark: Path | None = None) -> bytes:
@@ -64,4 +64,4 @@ class BatchWorker(QRunnable):
         except Exception as error:
             self.signals.error.emit(f"{type(error).__name__}: {error}")
         finally:
-            self.signals.finished.emit()
+            self.signals.finished.emit(self)

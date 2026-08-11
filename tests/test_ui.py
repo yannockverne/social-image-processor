@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -12,7 +13,7 @@ pytest.importorskip(
 from PIL import Image
 from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
-from PySide6.QtWidgets import QApplication, QMessageBox
+from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from app.models.image_item import ImageItem
 from app.models.profiles import ExportPlatform
@@ -27,6 +28,7 @@ from app.models.settings import ApplicationSettings
 from app.services.settings_service import SettingsService
 from app.ui.image_table import ImageTableModel
 from app.ui.main_window import MainWindow
+from app.ui.workers import FunctionWorker
 
 
 @pytest.fixture(scope="module")
@@ -108,6 +110,74 @@ def test_launch_with_stale_saved_paths_does_not_start_workers(
     assert starts == []
     assert "unavailable" in window.log.toPlainText()
     window.close()
+
+
+@pytest.mark.parametrize(
+    ("directory_name", "button_name", "path_name"),
+    (
+        ("input", "input_browse", "input_path"),
+        ("watermarks", "watermark_browse", "watermark_path"),
+    ),
+)
+def test_browse_commits_path_then_defers_exactly_one_scan(
+    window, application, tmp_path: Path, monkeypatch,
+    directory_name: str, button_name: str, path_name: str,
+) -> None:
+    selected = tmp_path / directory_name
+    selected.mkdir()
+    starts = []
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", lambda *_args: str(selected)
+    )
+    monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
+
+    getattr(window, button_name).click()
+
+    assert getattr(window, path_name).text() == str(selected)
+    assert starts == []
+    application.processEvents()
+    assert len(starts) == 1
+    application.processEvents()
+    assert len(starts) == 1
+
+
+@pytest.mark.parametrize("button_name", ("input_browse", "watermark_browse"))
+def test_cancelled_browse_does_not_start_scan(
+    window, application, monkeypatch, button_name: str
+) -> None:
+    starts = []
+    monkeypatch.setattr(QFileDialog, "getExistingDirectory", lambda *_args: "")
+    monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
+
+    getattr(window, button_name).click()
+    application.processEvents()
+
+    assert starts == []
+
+
+def test_worker_and_signal_bridge_are_retained_until_finished(
+    window, application
+) -> None:
+    entered, release = Event(), Event()
+
+    def wait_for_release() -> str:
+        entered.set()
+        assert release.wait(5)
+        return "done"
+
+    worker = FunctionWorker(wait_for_release)
+    results = []
+    worker.signals.result.connect(results.append)
+    window._start_worker(worker)
+
+    assert entered.wait(5)
+    assert worker in window._active_workers
+    release.set()
+    assert window.pool.waitForDone(5000)
+    assert worker in window._active_workers
+    application.processEvents()
+    assert results == ["done"]
+    assert worker not in window._active_workers
 
 
 def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) -> None:
