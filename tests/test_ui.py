@@ -43,7 +43,13 @@ def window(application, tmp_path: Path):
     settings = SettingsService(tmp_path / "settings.json")
     widget = MainWindow(settings)
     yield widget
-    widget.pool.waitForDone(5000)
+    # Drain both queued scan dispatches and their worker completion signals.
+    # This also runs after a failed assertion, preventing close protection from
+    # turning the original failure into a modal-dialog hang on Windows.
+    for _ in range(3):
+        application.processEvents()
+        widget.pool.waitForDone(5000)
+    application.processEvents()
     widget.close()
 
 
@@ -155,6 +161,7 @@ def test_browse_commits_path_then_defers_exactly_one_scan(
     getattr(window, path_name).editingFinished.emit()
     application.processEvents()
     assert len(starts) == 1
+    assert isinstance(starts[0], FunctionWorker)
     application.processEvents()
     assert len(starts) == 1
 
@@ -185,7 +192,7 @@ def test_cancelled_browse_does_not_start_scan(
     ("input_path", "watermark_path"),
 )
 def test_manual_path_edit_still_starts_one_scan(
-    window, tmp_path: Path, monkeypatch, path_name: str
+    window, application, tmp_path: Path, monkeypatch, path_name: str
 ) -> None:
     starts = []
     monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
@@ -195,7 +202,43 @@ def test_manual_path_edit_still_starts_one_scan(
     edit.textEdited.emit(str(tmp_path))
     edit.editingFinished.emit()
 
+    assert starts == []
+    application.processEvents()
     assert len(starts) == 1
+    assert isinstance(starts[0], FunctionWorker)
+
+
+@pytest.mark.parametrize(
+    ("button_name", "path_name"),
+    (
+        ("input_browse", "input_path"),
+        ("watermark_browse", "watermark_path"),
+    ),
+)
+def test_repeated_same_path_requests_in_one_event_turn_create_one_worker(
+    window,
+    application,
+    tmp_path: Path,
+    monkeypatch,
+    button_name: str,
+    path_name: str,
+) -> None:
+    starts = []
+    monkeypatch.setattr(
+        QFileDialog, "getExistingDirectory", lambda *_args: str(tmp_path)
+    )
+    monkeypatch.setattr(window, "_start_worker", lambda worker: starts.append(worker))
+
+    getattr(window, button_name).click()
+    # Model the second callback observed on Windows: the still-queued startup
+    # restoration callback reads the path just committed by Browse.
+    window._scan_restored_paths()
+    getattr(window, path_name).editingFinished.emit()
+
+    assert starts == []
+    application.processEvents()
+    assert len(starts) == 1
+    assert isinstance(starts[0], FunctionWorker)
 
 
 def test_stale_watermark_scan_result_is_ignored(window) -> None:
