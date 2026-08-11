@@ -1,0 +1,117 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+pytest.importorskip(
+    "PySide6.QtGui",
+    reason="PySide6 GUI runtime libraries are unavailable",
+    exc_type=ImportError,
+)
+from PIL import Image
+from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtWidgets import QApplication, QMessageBox
+
+from app.models.image_item import ImageItem
+from app.models.profiles import ExportPlatform
+from app.models.results import (
+    BatchStatistics,
+    ExportResult,
+    ExportStatus,
+    ProgressUpdate,
+    SuccessfulOutput,
+)
+from app.models.settings import ApplicationSettings
+from app.services.settings_service import SettingsService
+from app.ui.image_table import ImageTableModel
+from app.ui.main_window import MainWindow
+
+
+@pytest.fixture(scope="module")
+def application():
+    return QApplication.instance() or QApplication([])
+
+
+@pytest.fixture
+def window(application, tmp_path: Path):
+    settings = SettingsService(tmp_path / "settings.json")
+    widget = MainWindow(settings)
+    yield widget
+    widget.pool.waitForDone(5000)
+    widget.close()
+
+
+def test_window_constructs_and_restores_settings(application, tmp_path: Path) -> None:
+    service = SettingsService(tmp_path / "settings.json")
+    service.save(ApplicationSettings(Path("input"), Path("output"), Path("marks"), 87, False))
+    window = MainWindow(service)
+    assert window.input_path.text() == "input"
+    assert window.output_path.text() == "output"
+    assert window.watermark_path.text() == "marks"
+    assert window.quality.value() == 87
+    assert not window.watermark_enabled.isChecked()
+    assert window.minimumSizeHint().width() <= 1920
+    assert window.minimumSizeHint().height() <= 1080
+    window.pool.waitForDone(5000)
+    window.close()
+
+
+def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) -> None:
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 4)
+    window.model.set_platform_all(ImageTableModel.X, True)
+    assert window.model.items[0].export_to_x
+    assert not window.model.items[0].export_to_instagram
+    window.model.set_platform_all(ImageTableModel.INSTAGRAM, True)
+    window.model.set_platform_all(ImageTableModel.X, False)
+    assert not window.model.items[0].export_to_x
+    assert window.model.items[0].export_to_instagram
+    assert not window.model.set_thumbnail(0, 3, QPixmap(2, 2))
+    assert window.model.data(window.model.index(0, 0), Qt.DecorationRole) is None
+
+
+def test_selection_and_watermark_toggle_refresh_preview(window, monkeypatch) -> None:
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
+    calls = []
+    monkeypatch.setattr(window, "_refresh_selected_preview", lambda: calls.append(True))
+    window.table.selectionModel().select(
+        window.model.index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows
+    )
+    window.watermark_enabled.setChecked(not window.watermark_enabled.isChecked())
+    assert len(calls) >= 2
+
+
+def test_progress_results_statistics_and_completion_restore_controls(window, tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (2, 2)).save(source)
+    output = tmp_path / "X_source.jpg"; output.write_bytes(b"123")
+    window.model.replace_items([ImageItem(source, 2, 2, 100, True)], 1)
+    window._set_batch_running(True)
+    assert not window.input_path.isEnabled()
+    window.progress.setRange(0, 1)
+    window._batch_event(ProgressUpdate(1, 1, source))
+    result = ExportResult(source, ExportPlatform.X, ExportStatus.SUCCEEDED, output, 3)
+    window._batch_event(SuccessfulOutput(result))
+    window._batch_event(BatchStatistics(1, 1, 100, 125))
+    assert window.progress.value() == 1
+    assert "X_source.jpg" in window.log.toPlainText()
+    assert window.stat_saved.text() == "-25 B"
+    assert window.stat_reduction.text() == "-25.0 %"
+    window._set_batch_running(False)
+    assert window.input_path.isEnabled()
+
+
+def test_close_is_rejected_during_processing(window, monkeypatch) -> None:
+    monkeypatch.setattr(QMessageBox, "warning", lambda *args: None)
+    window.batch_running = True
+    event = QCloseEvent()
+    window.closeEvent(event)
+    assert not event.isAccepted()
+    window.batch_running = False
+
+
+def test_import_has_no_application_start_side_effect() -> None:
+    import app.main
+
+    assert callable(app.main.main)

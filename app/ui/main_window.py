@@ -1,0 +1,290 @@
+"""Main desktop window and GUI-thread orchestration."""
+
+from __future__ import annotations
+
+from dataclasses import replace
+import os
+from pathlib import Path
+
+from PySide6.QtCore import QItemSelection, QThreadPool, Qt
+from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtWidgets import (
+    QAbstractItemView, QCheckBox, QFileDialog, QFormLayout, QFrame, QHBoxLayout,
+    QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton,
+    QSpinBox, QSplitter, QTableView, QTextEdit, QVBoxLayout, QWidget,
+)
+
+from app.core.watermarking import WatermarkCatalog
+from app.models.results import (
+    BatchStatistics, FailedExport, FailedSource, ProgressUpdate, SkippedSource,
+    SuccessfulOutput,
+)
+from app.models.settings import ApplicationSettings
+from app.models.watermark import WatermarkStatus
+from app.services.batch_processor import BatchProcessor
+from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
+from app.services.settings_service import SettingsService
+from app.ui.image_table import ImageTableModel
+from app.ui.preview_panel import PreviewPanel
+from app.ui.workers import BatchWorker, FunctionWorker, render_preview_bytes
+from app.utils.formatting import format_bytes
+
+
+class MainWindow(QMainWindow):
+    """Functional V1 interface around the existing synchronous services."""
+
+    def __init__(self, settings_service: SettingsService | None = None) -> None:
+        super().__init__()
+        self.settings_service = settings_service or SettingsService()
+        self.settings = self.settings_service.load()
+        self.catalog = WatermarkCatalog()
+        self.pool = QThreadPool(self)
+        self.pool.setMaxThreadCount(3)
+        self.scan_generation = 0
+        self.preview_generation = 0
+        self.batch_running = False
+        self._build_ui()
+        self._restore_settings()
+        self.setWindowTitle("Social Image Processor")
+        self.resize(1280, 800)
+        if self.watermark_path.text():
+            self.refresh_watermarks()
+        elif self.input_path.text():
+            self.scan_input()
+
+    def _build_ui(self) -> None:
+        central = QWidget()
+        outer = QVBoxLayout(central)
+        form = QFormLayout()
+        self.input_path, input_browse = self._path_row("Select input folder", self.scan_input)
+        self.output_path, output_browse = self._path_row("Select output folder")
+        self.watermark_path, watermark_browse = self._path_row("Select watermark folder", self.refresh_watermarks)
+        form.addRow("Input folder", self._row_widget(self.input_path, input_browse))
+        form.addRow("Output folder", self._row_widget(self.output_path, output_browse))
+        form.addRow("Watermark folder", self._row_widget(self.watermark_path, watermark_browse))
+        outer.addLayout(form)
+
+        options = QHBoxLayout()
+        self.watermark_enabled = QCheckBox("Apply watermark")
+        self.watermark_enabled.toggled.connect(self._watermark_toggled)
+        self.quality = QSpinBox()
+        self.quality.setRange(70, 100)
+        self.quality.setSuffix(" %")
+        options.addWidget(self.watermark_enabled)
+        options.addWidget(QLabel("JPEG quality"))
+        options.addWidget(self.quality)
+        options.addStretch()
+        outer.addLayout(options)
+
+        selections = QHBoxLayout()
+        for text, column, value in (
+            ("Select all X", ImageTableModel.X, True), ("Clear all X", ImageTableModel.X, False),
+            ("Select all Instagram", ImageTableModel.INSTAGRAM, True), ("Clear all Instagram", ImageTableModel.INSTAGRAM, False),
+        ):
+            button = QPushButton(text)
+            button.clicked.connect(lambda _=False, c=column, v=value: self.model.set_platform_all(c, v))
+            selections.addWidget(button)
+        selections.addStretch()
+        outer.addLayout(selections)
+
+        self.model = ImageTableModel(self)
+        self.table = QTableView()
+        self.table.setModel(self.model)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setAlternatingRowColors(True)
+        self.table.verticalHeader().setDefaultSectionSize(76)
+        self.table.setColumnWidth(0, 110)
+        self.table.setColumnWidth(1, 230)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.preview = PreviewPanel()
+        split = QSplitter(Qt.Horizontal)
+        split.addWidget(self.table)
+        split.addWidget(self.preview)
+        split.setSizes([850, 430])
+        outer.addWidget(split, 3)
+
+        bottom = QSplitter(Qt.Horizontal)
+        self.log = QTextEdit()
+        self.log.setReadOnly(True)
+        self.log.setPlaceholderText("Processing messages will appear here.")
+        stats_frame = QFrame()
+        stats = QFormLayout(stats_frame)
+        self.stat_source, self.stat_output, self.stat_saved, self.stat_reduction = (QLabel("—") for _ in range(4))
+        stats.addRow("Source:", self.stat_source); stats.addRow("Output:", self.stat_output)
+        stats.addRow("Saved:", self.stat_saved); stats.addRow("Reduction:", self.stat_reduction)
+        bottom.addWidget(self.log); bottom.addWidget(stats_frame); bottom.setSizes([900, 300])
+        outer.addWidget(bottom, 1)
+
+        processing = QHBoxLayout()
+        self.progress_text = QLabel("Ready")
+        self.progress = QProgressBar(); self.progress.setRange(0, 1); self.progress.setValue(0)
+        self.process_button = QPushButton("PROCESS IMAGES")
+        self.process_button.setMinimumHeight(38)
+        self.process_button.clicked.connect(self.start_processing)
+        processing.addWidget(self.progress_text); processing.addWidget(self.progress, 1); processing.addWidget(self.process_button)
+        outer.addLayout(processing)
+        self.setCentralWidget(central)
+        self.conflicting_controls = [self.input_path, input_browse, self.output_path, output_browse,
+                                     self.watermark_path, watermark_browse, self.watermark_enabled,
+                                     self.quality, self.table, self.process_button]
+
+    @staticmethod
+    def _row_widget(edit, button):
+        widget = QWidget(); layout = QHBoxLayout(widget); layout.setContentsMargins(0, 0, 0, 0)
+        layout.addWidget(edit, 1); layout.addWidget(button); return widget
+
+    def _path_row(self, caption: str, changed=None):
+        edit, button = QLineEdit(), QPushButton("Browse…")
+        def browse():
+            path = QFileDialog.getExistingDirectory(self, caption, edit.text())
+            if path:
+                edit.setText(path)
+                if changed: changed()
+                self.save_settings()
+        button.clicked.connect(browse)
+        if changed:
+            edit.editingFinished.connect(changed)
+        edit.editingFinished.connect(self.save_settings)
+        return edit, button
+
+    def _restore_settings(self) -> None:
+        for edit, path in ((self.input_path, self.settings.input_directory), (self.output_path, self.settings.output_directory), (self.watermark_path, self.settings.watermark_directory)):
+            edit.setText(str(path) if path else "")
+        self.quality.setValue(self.settings.jpeg_quality)
+        self.watermark_enabled.setChecked(self.settings.watermark_enabled)
+        self.quality.valueChanged.connect(self.save_settings)
+
+    def save_settings(self) -> None:
+        def path(text): return Path(text) if text.strip() else None
+        self.settings = ApplicationSettings(path(self.input_path.text()), path(self.output_path.text()),
+            path(self.watermark_path.text()), self.quality.value(), self.watermark_enabled.isChecked(), self.settings.background_color)
+        try:
+            self.settings_service.save(self.settings)
+        except OSError as error:
+            self.statusBar().showMessage(f"Could not save settings: {error}", 5000)
+
+    def refresh_watermarks(self) -> None:
+        self.save_settings()
+        path = Path(self.watermark_path.text())
+        worker = FunctionWorker(scan_watermark_folder, path)
+        worker.signals.result.connect(self._watermarks_ready)
+        worker.signals.error.connect(self._show_worker_error)
+        self.pool.start(worker)
+
+    def _watermarks_ready(self, result) -> None:
+        self.catalog = result.catalog
+        if result.issues:
+            self.log.append("\n".join(f"WATERMARK SCAN ERROR {i.path.name}: {i.message}" for i in result.issues))
+        self.model.items = [replace(item, watermark_match=self.catalog.match(item.dimensions)) for item in self.model.items]
+        if self.model.items:
+            self.model.dataChanged.emit(self.model.index(0, ImageTableModel.WATERMARK), self.model.index(len(self.model.items)-1, ImageTableModel.WATERMARK))
+        self._refresh_selected_preview()
+        if self.input_path.text() and not self.model.items:
+            self.scan_input()
+
+    def scan_input(self) -> None:
+        self.save_settings(); self.scan_generation += 1; generation = self.scan_generation
+        self.preview.clear()
+        worker = FunctionWorker(scan_input_folder, Path(self.input_path.text()), self.catalog)
+        worker.signals.result.connect(lambda result, g=generation: self._scan_ready(g, result))
+        worker.signals.error.connect(self._show_worker_error)
+        self.pool.start(worker)
+
+    def _scan_ready(self, generation: int, result) -> None:
+        if generation != self.scan_generation: return
+        self.model.replace_items(result.images, generation)
+        for issue in result.issues:
+            self.log.append(f"SOURCE SCAN ERROR {issue.path.name}: {issue.message}")
+        for row, item in enumerate(result.images):
+            worker = FunctionWorker(render_preview_bytes, item.path, (120, 70))
+            worker.signals.result.connect(lambda data, r=row, g=generation: self._thumbnail_ready(g, r, data))
+            self.pool.start(worker)
+
+    def _thumbnail_ready(self, generation: int, row: int, data: bytes) -> None:
+        pixmap = QPixmap(); pixmap.loadFromData(data)
+        self.model.set_thumbnail(row, generation, pixmap)
+
+    def _selection_changed(self, selected: QItemSelection, _deselected: QItemSelection) -> None:
+        self._refresh_selected_preview()
+
+    def _refresh_selected_preview(self) -> None:
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        if not rows: self.preview.clear(); return
+        row = rows[0].row()
+        if row >= len(self.model.items): return
+        item = self.model.items[row]; self.preview_generation += 1; generation = self.preview_generation
+        watermark = None; status = "Watermark disabled"
+        if self.watermark_enabled.isChecked():
+            match = item.watermark_match
+            if match and match.status is WatermarkStatus.EXACT:
+                watermark, status = match.exact_path, "✓ Exact watermark preview"
+            elif match and match.status is WatermarkStatus.AMBIGUOUS: status = "⚠ Ambiguous watermark — preview not composited"
+            else: status = "⚠ Missing watermark — preview not composited"
+        self.preview.show_loading(item.path.name, status)
+        worker = FunctionWorker(render_preview_bytes, item.path, (900, 700), watermark)
+        worker.signals.result.connect(lambda data, g=generation: self._preview_ready(g, data))
+        worker.signals.error.connect(lambda message, g=generation: self._preview_error(g, message))
+        self.pool.start(worker)
+
+    def _preview_ready(self, generation: int, data: bytes) -> None:
+        if generation != self.preview_generation: return
+        pixmap = QPixmap(); pixmap.loadFromData(data); self.preview.show_pixmap(pixmap)
+
+    def _preview_error(self, generation: int, message: str) -> None:
+        if generation == self.preview_generation:
+            self.preview.image.setText("Unable to render preview"); self.preview.status.setText(message)
+
+    def _watermark_toggled(self) -> None:
+        self.save_settings(); self._refresh_selected_preview()
+
+    def start_processing(self) -> None:
+        input_dir, output_dir = Path(self.input_path.text()), Path(self.output_path.text())
+        if not input_dir.is_dir() or not output_dir.is_dir():
+            self._validation_error("Choose valid input and output folders."); return
+        if os.path.normcase(os.path.realpath(input_dir)) == os.path.normcase(os.path.realpath(output_dir)):
+            self._validation_error("Input and output folders must be different."); return
+        selected = [item for item in self.model.items if item.export_to_x or item.export_to_instagram]
+        if not selected: self._validation_error("Select X and/or Instagram for at least one image."); return
+        self.save_settings(); self.log.clear(); self._set_batch_running(True)
+        self.progress.setRange(0, len(selected)); self.progress.setValue(0)
+        self.progress_text.setText(f"Processing image 0 / {len(selected)}")
+        processor = BatchProcessor(selected, output_dir, watermark_enabled=self.watermark_enabled.isChecked(),
+            watermark_catalog=self.catalog, jpeg_quality=self.quality.value(), background=self.settings.background_color)
+        worker = BatchWorker(processor)
+        worker.signals.event.connect(self._batch_event)
+        worker.signals.error.connect(self._show_worker_error)
+        worker.signals.finished.connect(lambda: self._set_batch_running(False))
+        self.pool.start(worker)
+
+    def _batch_event(self, event) -> None:
+        if isinstance(event, ProgressUpdate):
+            self.progress.setValue(event.completed); self.progress_text.setText(f"Processing image {event.completed} / {event.total}")
+        elif isinstance(event, SuccessfulOutput):
+            source_size = next((i.size_bytes for i in self.model.items if i.path == event.result.source_path), 0)
+            self.log.append(f"{event.result.source_path.name}\n→ {event.result.output_path.name}\n{format_bytes(source_size)} → {format_bytes(event.result.output_size_bytes)}\n")
+        elif isinstance(event, SkippedSource): self.log.append(f"SKIPPED {event.source_path.name}\n{event.message}\n")
+        elif isinstance(event, FailedSource): self.log.append(f"ERROR {event.source_path.name}\n{event.message}\n")
+        elif isinstance(event, FailedExport): self.log.append(f"ERROR {event.result.source_path.name} ({event.result.platform.value})\n{event.result.message}\n")
+        elif isinstance(event, BatchStatistics):
+            self.stat_source.setText(format_bytes(event.processed_source_size_bytes)); self.stat_output.setText(format_bytes(event.output_size_bytes))
+            self.stat_saved.setText(format_bytes(event.bytes_saved)); self.stat_reduction.setText(f"{event.reduction_percentage:.1f} %")
+
+    def _set_batch_running(self, running: bool) -> None:
+        self.batch_running = running
+        for control in self.conflicting_controls: control.setEnabled(not running)
+        if not running: self.progress_text.setText("Complete")
+
+    def _validation_error(self, message: str) -> None:
+        QMessageBox.warning(self, "Cannot process images", message)
+
+    def _show_worker_error(self, message: str) -> None:
+        self.log.append(f"ERROR\n{message}\n")
+
+    def closeEvent(self, event: QCloseEvent) -> None:
+        if self.batch_running:
+            event.ignore()
+            QMessageBox.warning(self, "Processing in progress", "Wait for processing to finish before closing.")
+            return
+        self.save_settings(); event.accept()

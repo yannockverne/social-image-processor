@@ -6,18 +6,14 @@ import sys
 
 
 def main() -> int:
-    """Start the Qt application.
-
-    The complete main window is introduced in the UI phase. Keeping Qt imports
-    inside this function makes importing the package safe in non-GUI contexts.
-    """
-    from PySide6.QtWidgets import QApplication, QLabel
+    """Start the Qt application without side effects when imported."""
+    from PySide6.QtWidgets import QApplication
+    from app.ui.main_window import MainWindow
 
     application = QApplication(sys.argv)
-    placeholder = QLabel("Social Image Processor")
-    placeholder.setMinimumSize(480, 240)
-    placeholder.setWindowTitle("Social Image Processor")
-    placeholder.show()
+    application.setApplicationName("Social Image Processor")
+    window = MainWindow()
+    window.show()
     return application.exec()
 
 
