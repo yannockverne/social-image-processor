@@ -11,7 +11,6 @@ import app.services.batch_processor as batch_module  # noqa: E402
 from app.core.errors import OutputWriteError  # noqa: E402
 from app.core.watermarking import WatermarkCatalog  # noqa: E402
 from app.models.image_item import ImageItem  # noqa: E402
-from app.models.profiles import ExportPlatform  # noqa: E402
 from app.models.results import (  # noqa: E402
     BatchStatistics,
     ExportStatus,
@@ -26,11 +25,16 @@ from app.services.batch_processor import BatchProcessor  # noqa: E402
 def _source(
     path: Path, *, x: bool = False, instagram: bool = False, size: int | None = None
 ) -> ImageItem:
-    return ImageItem(path, 8, 4, path.stat().st_size if size is None else size, x, instagram)
+    return ImageItem(
+        path, 8, 4, path.stat().st_size if size is None else size, x, instagram
+    )
 
 
 def _run(
-    sources: list[ImageItem], output: Path, catalog: WatermarkCatalog | None = None, **kwargs: object
+    sources: list[ImageItem],
+    output: Path,
+    catalog: WatermarkCatalog | None = None,
+    **kwargs: object,
 ):
     return BatchProcessor(
         sources,
@@ -104,7 +108,9 @@ def test_exact_watermark_is_composited_and_inputs_are_unchanged(tmp_path: Path) 
     watermark = tmp_path / "watermark.png"
     Image.new("RGB", (8, 4), "red").save(source)
     Image.new("RGBA", (8, 4), (0, 0, 255, 255)).save(watermark)
-    before = [hashlib.sha256(path.read_bytes()).digest() for path in (source, watermark)]
+    before = [
+        hashlib.sha256(path.read_bytes()).digest() for path in (source, watermark)
+    ]
 
     result = _run(
         [_source(source, x=True)],
@@ -116,7 +122,9 @@ def test_exact_watermark_is_composited_and_inputs_are_unchanged(tmp_path: Path) 
     with Image.open(result.exports[0].output_path) as output:
         red, _green, blue = output.getpixel((0, 0))
         assert blue > red
-    assert before == [hashlib.sha256(path.read_bytes()).digest() for path in (source, watermark)]
+    assert before == [
+        hashlib.sha256(path.read_bytes()).digest() for path in (source, watermark)
+    ]
 
 
 @pytest.mark.parametrize("watermarks", [[], ["one.png", "two.png"]])
@@ -183,7 +191,10 @@ def test_one_platform_failure_isolated_and_statistics_count_only_success(
     assert result.statistics.processed_source_count == 1
     assert result.statistics.successful_output_count == 1
     assert result.processed_source_size_bytes == 1000
-    assert result.output_size_bytes == (tmp_path / "out" / "Insta_source.jpg").stat().st_size
+    assert (
+        result.output_size_bytes
+        == (tmp_path / "out" / "Insta_source.jpg").stat().st_size
+    )
 
 
 def test_duplicate_names_are_reserved_across_multi_output_batch(tmp_path: Path) -> None:
@@ -196,9 +207,7 @@ def test_duplicate_names_are_reserved_across_multi_output_batch(tmp_path: Path) 
     Image.new("RGB", (8, 4), "red").save(first)
     Image.new("RGB", (8, 4), "blue").save(second)
 
-    result = _run(
-        [_source(first, x=True), _source(second, x=True)], tmp_path / "out"
-    )
+    result = _run([_source(first, x=True), _source(second, x=True)], tmp_path / "out")
     assert [export.output_path.name for export in result.exports] == [
         "X_same.jpg",
         "X_same_2.jpg",

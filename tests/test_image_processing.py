@@ -138,6 +138,25 @@ def test_export_never_overwrites_an_existing_output(tmp_path: Path) -> None:
     assert not list(tmp_path.glob(f".{output_path.name}.*.tmp"))
 
 
+def test_failed_finalization_cleans_temporary_and_reserved_destination(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source_path = tmp_path / "source.png"
+    output_path = tmp_path / "X_source.jpg"
+    Image.new("RGB", (3, 3)).save(source_path)
+
+    def fail_replace(_self: Path, _target: Path) -> None:
+        raise OSError("simulated finalization failure")
+
+    monkeypatch.setattr(type(tmp_path), "replace", fail_replace)
+
+    with pytest.raises(OutputWriteError, match="simulated finalization failure"):
+        export_jpeg(source_path, output_path)
+
+    assert not output_path.exists()
+    assert not list(tmp_path.glob(f".{output_path.name}.*.tmp"))
+
+
 def test_safe_export_fsyncs_a_writable_file_for_windows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

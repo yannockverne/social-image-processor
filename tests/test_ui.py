@@ -26,6 +26,8 @@ from app.models.results import (
 )
 from app.models.settings import ApplicationSettings
 from app.services.settings_service import SettingsService
+from app.services.folder_scanner import WatermarkScanResult
+from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel
 from app.ui.main_window import MainWindow
 from app.ui.workers import FunctionWorker
@@ -47,7 +49,9 @@ def window(application, tmp_path: Path):
 
 def test_window_constructs_and_restores_settings(application, tmp_path: Path) -> None:
     service = SettingsService(tmp_path / "settings.json")
-    service.save(ApplicationSettings(Path("input"), Path("output"), Path("marks"), 87, False))
+    service.save(
+        ApplicationSettings(Path("input"), Path("output"), Path("marks"), 87, False)
+    )
     window = MainWindow(service)
     assert window.input_path.text() == "input"
     assert window.output_path.text() == "output"
@@ -72,13 +76,16 @@ def test_launch_with_saved_paths_defers_and_safely_restores_scans(
     Image.new("RGB", (2, 2)).save(input_directory / "source.jpg")
     Image.new("RGBA", (2, 2)).save(watermark_directory / "mark.png")
     service = SettingsService(tmp_path / "settings.json")
-    service.save(ApplicationSettings(
-        input_directory, output_directory, watermark_directory, 87, True
-    ))
+    service.save(
+        ApplicationSettings(
+            input_directory, output_directory, watermark_directory, 87, True
+        )
+    )
     starts = []
     original_start = MainWindow._scan_restored_paths
     monkeypatch.setattr(
-        MainWindow, "_scan_restored_paths",
+        MainWindow,
+        "_scan_restored_paths",
         lambda self: (starts.append(True), original_start(self))[-1],
     )
 
@@ -120,8 +127,13 @@ def test_launch_with_stale_saved_paths_does_not_start_workers(
     ),
 )
 def test_browse_commits_path_then_defers_exactly_one_scan(
-    window, application, tmp_path: Path, monkeypatch,
-    directory_name: str, button_name: str, path_name: str,
+    window,
+    application,
+    tmp_path: Path,
+    monkeypatch,
+    directory_name: str,
+    button_name: str,
+    path_name: str,
 ) -> None:
     selected = tmp_path / directory_name
     selected.mkdir()
@@ -153,6 +165,18 @@ def test_cancelled_browse_does_not_start_scan(
     application.processEvents()
 
     assert starts == []
+
+
+def test_stale_watermark_scan_result_is_ignored(window) -> None:
+    current = WatermarkCatalog({(2, 2): [Path("current.png")]})
+    stale = WatermarkCatalog({(3, 3): [Path("stale.png")]})
+    window.watermark_generation = 2
+
+    window._watermarks_ready(2, WatermarkScanResult(current))
+    window._watermarks_ready(1, WatermarkScanResult(stale))
+
+    assert window.catalog.match((2, 2)).exact_path == Path("current.png")
+    assert window.catalog.match((3, 3)).exact_path is None
 
 
 def test_worker_and_signal_bridge_are_retained_until_finished(
@@ -198,16 +222,20 @@ def test_selection_and_watermark_toggle_refresh_preview(window, monkeypatch) -> 
     calls = []
     monkeypatch.setattr(window, "_refresh_selected_preview", lambda: calls.append(True))
     window.table.selectionModel().select(
-        window.model.index(0, 0), QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows
+        window.model.index(0, 0),
+        QItemSelectionModel.ClearAndSelect | QItemSelectionModel.Rows,
     )
     window.watermark_enabled.setChecked(not window.watermark_enabled.isChecked())
     assert len(calls) >= 2
 
 
-def test_progress_results_statistics_and_completion_restore_controls(window, tmp_path: Path) -> None:
+def test_progress_results_statistics_and_completion_restore_controls(
+    window, tmp_path: Path
+) -> None:
     source = tmp_path / "source.png"
     Image.new("RGB", (2, 2)).save(source)
-    output = tmp_path / "X_source.jpg"; output.write_bytes(b"123")
+    output = tmp_path / "X_source.jpg"
+    output.write_bytes(b"123")
     window.model.replace_items([ImageItem(source, 2, 2, 100, True)], 1)
     window._set_batch_running(True)
     assert not window.input_path.isEnabled()
@@ -231,6 +259,18 @@ def test_close_is_rejected_during_processing(window, monkeypatch) -> None:
     window.closeEvent(event)
     assert not event.isAccepted()
     window.batch_running = False
+
+
+def test_empty_folder_fields_are_rejected_for_processing(window, monkeypatch) -> None:
+    messages = []
+    monkeypatch.setattr(QMessageBox, "warning", lambda *_args: messages.append(True))
+    window.input_path.clear()
+    window.output_path.clear()
+
+    window.start_processing()
+
+    assert messages == [True]
+    assert not window.batch_running
 
 
 def test_import_has_no_application_start_side_effect() -> None:
