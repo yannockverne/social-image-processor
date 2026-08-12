@@ -337,6 +337,33 @@ def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) 
         (ImageTableModel.INSTAGRAM, "export_to_instagram"),
     ),
 )
+def test_platform_check_state_integer_transitions(
+    window, column: int, attribute: str
+) -> None:
+    """Accept the integer check states emitted by the native item delegate."""
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
+    index = window.model.index(0, column)
+
+    assert window.model.setData(
+        index, Qt.CheckState.Checked.value, Qt.CheckStateRole
+    )
+    assert getattr(window.model.items[0], attribute) is True
+    assert window.model.data(index, Qt.CheckStateRole) == Qt.Checked
+
+    assert window.model.setData(
+        index, Qt.CheckState.Unchecked.value, Qt.CheckStateRole
+    )
+    assert getattr(window.model.items[0], attribute) is False
+    assert window.model.data(index, Qt.CheckStateRole) == Qt.Unchecked
+
+
+@pytest.mark.parametrize(
+    ("column", "attribute"),
+    (
+        (ImageTableModel.X, "export_to_x"),
+        (ImageTableModel.INSTAGRAM, "export_to_instagram"),
+    ),
+)
 def test_platform_checkbox_toggles_from_table_view(
     window_without_restored_paths, application, column: int, attribute: str
 ) -> None:
@@ -389,6 +416,16 @@ def test_platform_checkbox_toggles_from_table_view(
 
     assert window.model.rowCount() == 1
     assert getattr(window.model.items[0], attribute)
+
+    QTest.mouseClick(
+        window.table.viewport(),
+        Qt.LeftButton,
+        Qt.NoModifier,
+        indicator_rect.center(),
+    )
+    application.processEvents()
+
+    assert not getattr(window.model.items[0], attribute)
 
 
 def test_selection_and_watermark_toggle_refresh_preview(window, monkeypatch) -> None:
