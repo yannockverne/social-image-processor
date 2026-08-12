@@ -12,7 +12,7 @@ pytest.importorskip(
 )
 from PIL import Image
 from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt
-from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtGui import QCloseEvent, QFont, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QStyle,
     QStyleOptionViewItem,
+    QWidget,
 )
 
 from app.models.image_item import ImageItem
@@ -37,6 +38,7 @@ from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel
 from app.ui.main_window import MainWindow
+from app.ui.theme import apply_theme
 from app.ui.workers import FunctionWorker
 
 
@@ -49,6 +51,25 @@ def process_deferred_scan(application) -> None:
     """Run both the scan-source timer and the coalesced dispatch timer."""
     application.processEvents()
     application.processEvents()
+
+
+def test_theme_preserves_pixel_sized_application_font(application) -> None:
+    original_font = QFont(application.font())
+    pixel_font = QFont(original_font)
+    pixel_font.setPixelSize(17)
+    application.setFont(pixel_font)
+    widget = QWidget()
+
+    try:
+        apply_theme(widget)
+
+        themed_font = application.font()
+        assert themed_font.pointSize() == -1
+        assert themed_font.pixelSize() == 17
+        assert themed_font.family() == "Segoe UI"
+    finally:
+        application.setFont(original_font)
+        widget.close()
 
 
 def drain_window_work(application, window) -> None:
