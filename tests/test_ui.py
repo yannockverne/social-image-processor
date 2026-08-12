@@ -338,6 +338,13 @@ def test_platform_checkbox_toggles_from_table_view(
     window.show()
     application.processEvents()
 
+    # Move focus away from the path field before installing the controlled row.
+    # On Windows that focus transition emits input_path.editingFinished, whose
+    # deferred empty-path scan clears the model.  Drain it now so the real
+    # checkbox click cannot trigger that unrelated scan for the first time.
+    window.table.setFocus()
+    process_deferred_scan(application)
+
     # The fake settings service guarantees that the construction-time
     # _scan_restored_paths callback has no path from which to start a worker.
     window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
@@ -358,6 +365,7 @@ def test_platform_checkbox_toggles_from_table_view(
     )
     application.processEvents()
 
+    assert window.model.rowCount() == 1
     assert getattr(window.model.items[0], attribute)
 
 
