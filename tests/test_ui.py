@@ -11,7 +11,7 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 from PIL import Image
-from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -313,18 +313,39 @@ def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) 
 def test_platform_checkbox_toggles_from_table_view(
     window, application, column: int, attribute: str
 ) -> None:
-    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
     window.show()
+
+    # MainWindow schedules its restored-path scan for the next event-loop turn.
+    # Let that initialization finish before installing this test's model row so
+    # a late empty scan result cannot replace it on slower/native platforms.
+    drain_window_work(application, window)
+    expected_path = Path("one.png")
+    window.model.replace_items([ImageItem(expected_path, 10, 5, 100)], 1)
+
+    wait = QElapsedTimer()
+    wait.start()
     application.processEvents()
+    while (
+        not window.model.items or window.model.items[0].path != expected_path
+    ) and wait.elapsed() < 5000:
+        application.processEvents()
+        QTest.qWait(10)
+
+    assert window.model.rowCount() > 0
+    assert window.model.items[0].path == expected_path
 
     index = window.model.index(0, column)
+    assert index.isValid()
     assert not getattr(window.model.items[0], attribute)
+
+    cell_rect = window.table.visualRect(index)
+    assert cell_rect.isValid()
 
     QTest.mouseClick(
         window.table.viewport(),
         Qt.LeftButton,
         Qt.NoModifier,
-        window.table.visualRect(index).center(),
+        cell_rect.center(),
     )
     application.processEvents()
 
