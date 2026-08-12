@@ -14,7 +14,13 @@ from PIL import Image
 from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtTest import QTest
-from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
+from PySide6.QtWidgets import (
+    QApplication,
+    QFileDialog,
+    QMessageBox,
+    QStyle,
+    QStyleOptionViewItem,
+)
 
 from app.models.image_item import ImageItem
 from app.models.profiles import ExportPlatform
@@ -357,11 +363,27 @@ def test_platform_checkbox_toggles_from_table_view(
     cell_rect = window.table.visualRect(index)
     assert cell_rect.isValid()
 
+    # A checkable item is only toggled when the click lands on the style's
+    # check-indicator sub-element.  Its native position is not necessarily the
+    # center of the cell (notably with the Windows style), so build the same
+    # option the delegate paints and ask the active style for that geometry.
+    option = QStyleOptionViewItem()
+    window.table.itemDelegate(index).initStyleOption(option, index)
+    option.rect = cell_rect
+    option.widget = window.table
+    indicator_rect = window.table.style().subElementRect(
+        QStyle.SE_ItemViewItemCheckIndicator,
+        option,
+        window.table,
+    )
+    assert indicator_rect.isValid()
+    assert not indicator_rect.isEmpty()
+
     QTest.mouseClick(
         window.table.viewport(),
         Qt.LeftButton,
         Qt.NoModifier,
-        cell_rect.center(),
+        indicator_rect.center(),
     )
     application.processEvents()
 
