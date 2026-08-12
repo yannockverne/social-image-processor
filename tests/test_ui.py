@@ -395,7 +395,7 @@ def test_platform_checkbox_toggles_from_table_view(
     # center of the cell (notably with the Windows style), so build the same
     # option the delegate paints and ask the active style for that geometry.
     option = QStyleOptionViewItem()
-    window.table.itemDelegate(index).initStyleOption(option, index)
+    window.table.itemDelegateForIndex(index).initStyleOption(option, index)
     option.rect = cell_rect
     option.widget = window.table
     indicator_rect = window.table.style().subElementRect(
