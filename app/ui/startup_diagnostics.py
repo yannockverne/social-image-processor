@@ -48,7 +48,13 @@ def install_message_handler() -> None:
     marker("Qt message handler installed")
 
 
-def report_style_diagnostic(mode: str, enabled_groups: set[str], all_groups) -> bool:
+def report_style_diagnostic(
+    mode: str,
+    enabled_groups: set[str],
+    all_groups,
+    global_mode: str | None = None,
+    enabled_global_subsets: set[str] | None = None,
+) -> bool:
     """Print the reproducible stylesheet selection and warning result."""
     disabled_groups = set(all_groups) - enabled_groups
     _write(f"[style-diagnostic] mode={mode!r}")
@@ -56,6 +62,12 @@ def report_style_diagnostic(mode: str, enabled_groups: set[str], all_groups) -> 
     _write(
         f"[style-diagnostic] disabled={','.join(sorted(disabled_groups)) or '<none>'}"
     )
+    if global_mode is not None and enabled_global_subsets is not None:
+        _write(f"[style-diagnostic] global-mode={global_mode!r}")
+        _write(
+            "[style-diagnostic] global-subsets="
+            f"{','.join(sorted(enabled_global_subsets)) or '<none>'}"
+        )
     occurred = bool(_invalid_point_size_warnings)
     _write(
         f"[style-diagnostic] invalid-point-size-warning={'YES' if occurred else 'NO'}"

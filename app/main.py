@@ -21,17 +21,30 @@ def main() -> int:
     from app.ui.theme import (
         STYLE_DIAGNOSTIC_GROUPS,
         configure_application_font,
+        diagnostic_global_selection,
         diagnostic_style_selection,
     )
     from app.utils.resources import resource_path
 
     diagnostic_mode = os.environ.get("SIP_STYLE_DIAGNOSTIC")
+    global_diagnostic_mode = os.environ.get("SIP_GLOBAL_STYLE_DIAGNOSTIC")
+    enabled_global_subsets = None
     if diagnostic_mode is not None:
         try:
             enabled_groups = diagnostic_style_selection(diagnostic_mode)
+            if global_diagnostic_mode is not None:
+                enabled_global_subsets = diagnostic_global_selection(
+                    global_diagnostic_mode
+                )
         except ValueError as error:
-            print(f"SIP_STYLE_DIAGNOSTIC: {error}", file=sys.stderr)
+            print(f"stylesheet diagnostic: {error}", file=sys.stderr)
             return 2
+    elif global_diagnostic_mode is not None:
+        print(
+            "SIP_GLOBAL_STYLE_DIAGNOSTIC requires SIP_STYLE_DIAGNOSTIC",
+            file=sys.stderr,
+        )
+        return 2
 
     install_message_handler()
     marker("QApplication creation started")
@@ -57,7 +70,11 @@ def main() -> int:
     application.processEvents()
     if diagnostic_mode is not None:
         report_style_diagnostic(
-            diagnostic_mode, enabled_groups, STYLE_DIAGNOSTIC_GROUPS
+            diagnostic_mode,
+            enabled_groups,
+            STYLE_DIAGNOSTIC_GROUPS,
+            global_diagnostic_mode,
+            enabled_global_subsets,
         )
         window.close()
         return 0

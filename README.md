@@ -177,6 +177,29 @@ $env:SIP_STYLE_DIAGNOSTIC = "include:headers"; python -m app.main
 back each command's `[style-diagnostic]` lines plus any adjacent Qt warning line.
 Remove the variable afterward with `Remove-Item Env:SIP_STYLE_DIAGNOSTIC`.
 
+After the group-level bisect identifies `global`, keep that group selected and
+use the temporary `SIP_GLOBAL_STYLE_DIAGNOSTIC` follow-up to run each declaration
+independently. These commands retain the real window construction, `show()`, Qt
+event processing, exact-warning capture, and automatic exit:
+
+```powershell
+$env:SIP_STYLE_DIAGNOSTIC = "include:global"
+$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:qwidget-color"; python -m app.main
+$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:qwidget-font-family"; python -m app.main
+$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:qwidget-font-size"; python -m app.main
+$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:main-window-background-color"; python -m app.main
+Remove-Item Env:SIP_GLOBAL_STYLE_DIAGNOSTIC
+Remove-Item Env:SIP_STYLE_DIAGNOSTIC
+```
+
+The subset names map respectively to the three declarations in the global
+`QWidget` rule and the background declaration in
+`QMainWindow, QWidget#mainContent`. `all`, `none`, and
+`exclude:<comma-separated-subsets>` are also accepted. Run these commands with
+the native Windows platform plugin (do not set `QT_QPA_PLATFORM=offscreen`) and
+return the `[style-diagnostic]` output for each subset. No production QSS is
+changed by this property-level filter.
+
 The native Windows workflow has also been manually validated for startup/relaunch,
 Browse scanning, restored settings, thumbnails, previews, watermark safety, both
 platform profiles, PNG-to-JPEG processing, and repeated runs.
