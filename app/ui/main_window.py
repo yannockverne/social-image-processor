@@ -47,6 +47,7 @@ from app.services.settings_service import SettingsService
 from app.ui.image_table import ImageTableModel
 from app.ui.preview_panel import PreviewPanel
 from app.ui.theme import apply_theme
+from app.ui.trello_panel import TrelloPanel
 from app.ui.workers import BatchWorker, FunctionWorker, render_preview_bytes
 from app.utils.formatting import format_bytes
 
@@ -146,6 +147,10 @@ class MainWindow(QMainWindow):
         options.addStretch()
         setup_layout.addLayout(options)
         outer.addWidget(setup_card)
+
+        self.trello_panel = TrelloPanel(parent=self)
+        self.trello_panel.start_worker.connect(self._start_worker)
+        outer.addWidget(self.trello_panel)
 
         selections = QHBoxLayout()
         for text, column, value in (
