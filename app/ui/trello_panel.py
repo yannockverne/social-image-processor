@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
@@ -43,14 +44,25 @@ class TrelloPanel(QFrame):
         self.service_factory = service_factory
         self.service = None
         layout = QVBoxLayout(self)
+        # Keep this optional section compact.  Stacking the title, status, and
+        # connect button made all three rows part of MainWindow's mandatory
+        # height, which pushed its minimum size beyond a 1080-pixel Windows
+        # desktop.  A single header row preserves the same controls while
+        # leaving the image table and log free to shrink as intended.
+        layout.setContentsMargins(14, 10, 14, 12)
+        layout.setSpacing(7)
+        header = QHBoxLayout()
+        header.setSpacing(10)
         title = QLabel("TRELLO")
         title.setObjectName("sectionTitle")
         self.status = QLabel("Not connected")
         self.connect_button = QPushButton("Connect Trello")
         self.connect_button.clicked.connect(self.connect_trello)
-        layout.addWidget(title)
-        layout.addWidget(self.status)
-        layout.addWidget(self.connect_button)
+        header.addWidget(title)
+        header.addWidget(self.status)
+        header.addStretch()
+        header.addWidget(self.connect_button)
+        layout.addLayout(header)
         form = QFormLayout()
         self.board, self.trello_list, self.card = QComboBox(), QComboBox(), QComboBox()
         form.addRow("Board", self.board)
