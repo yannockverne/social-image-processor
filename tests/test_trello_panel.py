@@ -118,13 +118,23 @@ def test_explicit_attach_uploads_current_processed_outputs(panel) -> None:
     panel.trello_list.setCurrentIndex(1)
     panel.card.setCurrentIndex(1)
     panel.set_processed_files(files)
+    activity = []
+    panel.activity.connect(activity.append)
     panel.attach_button.click()
     assert panel.service.calls[-1] == ("upload", "c1", tuple(files))
     assert panel.status.text() == "Uploaded 2 file(s) successfully"
     assert not panel.attach_button.isEnabled()
+    assert activity == [
+        'Trello: uploading 2 attachments to "Post"…',
+        "Trello: X_ready.jpg uploaded.",
+        "Trello: Insta_ready.jpg uploaded.",
+        "Trello: 2/2 attachments uploaded successfully.",
+    ]
 
 
 def test_partial_upload_failure_is_clear(panel) -> None:
+    activity = []
+    panel.activity.connect(activity.append)
     panel._attachments_uploaded(
         [
             TrelloAttachmentResult(Path("X_ok.jpg"), True),
@@ -134,6 +144,11 @@ def test_partial_upload_failure_is_clear(panel) -> None:
     assert "Uploaded 1; failed 1" in panel.status.text()
     assert "X_bad.jpg: network unavailable" in panel.status.text()
     assert panel.processed_files == (Path("X_bad.jpg"),)
+    assert activity == [
+        "Trello: X_ok.jpg uploaded.",
+        "Trello: X_bad.jpg failed — network unavailable.",
+        "Trello: 1/2 attachments uploaded. 1 pending retry.",
+    ]
 
 
 def test_change_credentials_replaces_stored_values(panel, monkeypatch) -> None:

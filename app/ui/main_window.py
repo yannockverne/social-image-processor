@@ -147,11 +147,13 @@ class MainWindow(QMainWindow):
         options.addWidget(self.quality)
         options.addStretch()
         setup_layout.addLayout(options)
-        outer.addWidget(setup_card)
-
         self.trello_panel = TrelloPanel(parent=self)
         self.trello_panel.start_worker.connect(self._start_worker)
-        outer.addWidget(self.trello_panel)
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        top.addWidget(setup_card, 2)
+        top.addWidget(self.trello_panel, 1)
+        outer.addLayout(top)
 
         selections = QHBoxLayout()
         for text, column, value in (
@@ -192,7 +194,8 @@ class MainWindow(QMainWindow):
         bottom = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Processing messages will appear here.")
+        self.log.setPlaceholderText("Processing and Trello activity will appear here.")
+        self.trello_panel.activity.connect(self.log.append)
         stats_frame = QFrame()
         stats_frame.setObjectName("card")
         stats = QVBoxLayout(stats_frame)
@@ -236,9 +239,11 @@ class MainWindow(QMainWindow):
         self.process_button.setObjectName("processButton")
         self.process_button.setMinimumHeight(38)
         self.process_button.clicked.connect(self.start_processing)
+        self.trello_panel.attach_button.setMinimumHeight(38)
         processing.addWidget(self.progress_text)
         processing.addWidget(self.progress, 1)
         processing.addWidget(self.process_button)
+        processing.addWidget(self.trello_panel.attach_button)
         outer.addWidget(footer)
         self.setCentralWidget(central)
         self.conflicting_controls = [

@@ -12,7 +12,6 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
-    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -34,6 +33,7 @@ class TrelloPanel(QFrame):
     """Own connection and dependent Board → List → Card selector state."""
 
     start_worker = Signal(object)
+    activity = Signal(str)
 
     def __init__(
         self,
@@ -48,11 +48,6 @@ class TrelloPanel(QFrame):
         self.service = None
         self.processed_files: tuple[Path, ...] = ()
         layout = QVBoxLayout(self)
-        # Keep this optional section compact.  Stacking the title, status, and
-        # connect button made all three rows part of MainWindow's mandatory
-        # height, which pushed its minimum size beyond a 1080-pixel Windows
-        # desktop.  A single header row preserves the same controls while
-        # leaving the image table and log free to shrink as intended.
         layout.setContentsMargins(14, 10, 14, 12)
         layout.setSpacing(7)
         header = QHBoxLayout()
@@ -70,36 +65,29 @@ class TrelloPanel(QFrame):
         self.credentials_button.clicked.connect(self.change_credentials)
         self.credentials_button.setVisible(False)
         header.addWidget(title)
-        header.addWidget(self.status)
         header.addStretch()
         header.addWidget(self.connect_button)
         header.addWidget(self.credentials_button)
         layout.addLayout(header)
-        # Board, list, and card form one dependent choice, so present them as a
-        # single compact row instead of three full-width form rows.  Besides
-        # making that relationship clearer, this removes two control heights
-        # from MainWindow's minimumSizeHint on the roomier Windows style.
-        selectors = QGridLayout()
+        layout.addWidget(self.status)
+        selectors = QFormLayout()
         selectors.setHorizontalSpacing(10)
-        selectors.setVerticalSpacing(3)
+        selectors.setVerticalSpacing(5)
         self.board, self.trello_list, self.card = QComboBox(), QComboBox(), QComboBox()
-        for column, (label_text, selector) in enumerate(
-            (("Board", self.board), ("List", self.trello_list), ("Card", self.card))
+        for label_text, selector in (
+            ("Board", self.board),
+            ("List", self.trello_list),
+            ("Card", self.card),
         ):
             selector.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            selectors.addWidget(QLabel(label_text), 0, column)
-            selectors.addWidget(selector, 1, column)
-            selectors.setColumnStretch(column, 1)
+            selectors.addRow(label_text, selector)
         layout.addLayout(selectors)
-        upload = QHBoxLayout()
         self.files_status = QLabel("No processed files ready")
         self.files_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        layout.addWidget(self.files_status)
+        # MainWindow places the explicit second-step action beside PROCESS IMAGES.
         self.attach_button = QPushButton("ATTACH TO CARD")
         self.attach_button.clicked.connect(self.attach_to_card)
-        upload.addWidget(self.files_status)
-        upload.addStretch()
-        upload.addWidget(self.attach_button)
-        layout.addLayout(upload)
         self.board.currentIndexChanged.connect(self._board_changed)
         self.trello_list.currentIndexChanged.connect(self._list_changed)
         self.card.currentIndexChanged.connect(self._update_attach_state)
@@ -259,7 +247,13 @@ class TrelloPanel(QFrame):
             self._show_error("No processed files ready")
             return
         self.attach_button.setEnabled(False)
-        self.status.setText(f"Uploading {len(self.processed_files)} file(s)…")
+        total = len(self.processed_files)
+        card_name = self.card.currentText()
+        self.status.setText(f"Uploading {total} file(s)…")
+        self.activity.emit(
+            f"Trello: uploading {total} attachment{'s' if total != 1 else ''} "
+            f'to "{card_name}"…'
+        )
         self._run(
             lambda: self.service.upload_attachments(card_id, self.processed_files),
             self._attachments_uploaded,
@@ -272,6 +266,7 @@ class TrelloPanel(QFrame):
         # failures only instead of creating duplicate successful attachments.
         self.processed_files = tuple(result.path for result in failed)
         remaining = len(self.processed_files)
+        total = len(results)
         self.files_status.setText(
             f"{remaining} processed file{'s' if remaining != 1 else ''} ready"
             if remaining
@@ -284,6 +279,21 @@ class TrelloPanel(QFrame):
             )
         else:
             self.status.setText(f"Uploaded {len(succeeded)} file(s) successfully")
+        for result in results:
+            if result.succeeded:
+                self.activity.emit(f"Trello: {result.path.name} uploaded.")
+            else:
+                reason = (result.message.strip() or "upload failed").rstrip(".")
+                self.activity.emit(f"Trello: {result.path.name} failed — {reason}.")
+        if failed:
+            self.activity.emit(
+                f"Trello: {len(succeeded)}/{total} attachments uploaded. "
+                f"{remaining} pending retry."
+            )
+        else:
+            self.activity.emit(
+                f"Trello: {len(succeeded)}/{total} attachments uploaded successfully."
+            )
         self._update_attach_state()
 
     def _show_error(self, message: str) -> None:
