@@ -152,54 +152,6 @@ $env:QT_QPA_PLATFORM = "offscreen"
 pytest -q tests/test_ui.py
 ```
 
-### Temporary native Windows stylesheet diagnostic
-
-`SIP_STYLE_DIAGNOSTIC` runs the real `MainWindow` through `show()` and event
-processing, reports whether the exact invalid-point-size warning occurred, and
-then exits. Production startup and its stylesheet are unchanged when the variable
-is absent. Start the bisect from PowerShell with:
-
-```powershell
-$env:SIP_STYLE_DIAGNOSTIC = "first-half"; python -m app.main
-$env:SIP_STYLE_DIAGNOSTIC = "second-half"; python -m app.main
-```
-
-The groups, in bisect order, are `global`, `labels`, `cards`, `inputs`, `buttons`,
-`checkboxes`, `tables`, `headers`, `text_edits`, `preview`, `progress`, and
-`scrollbars_and_chrome`. Narrow a positive half by explicitly including groups:
-
-```powershell
-$env:SIP_STYLE_DIAGNOSTIC = "include:tables,headers,text_edits"; python -m app.main
-$env:SIP_STYLE_DIAGNOSTIC = "include:headers"; python -m app.main
-```
-
-`all`, `none`, and `exclude:<comma-separated-groups>` are also accepted. Send
-back each command's `[style-diagnostic]` lines plus any adjacent Qt warning line.
-Remove the variable afterward with `Remove-Item Env:SIP_STYLE_DIAGNOSTIC`.
-
-After the group-level bisect identifies `global`, keep that group selected and
-use the temporary `SIP_GLOBAL_STYLE_DIAGNOSTIC` follow-up to run each declaration
-independently. These commands retain the real window construction, `show()`, Qt
-event processing, exact-warning capture, and automatic exit:
-
-```powershell
-$env:SIP_STYLE_DIAGNOSTIC = "include:global"
-$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:qwidget-color"; python -m app.main
-$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:qwidget-font-family"; python -m app.main
-$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:qwidget-font-size"; python -m app.main
-$env:SIP_GLOBAL_STYLE_DIAGNOSTIC = "include:main-window-background-color"; python -m app.main
-Remove-Item Env:SIP_GLOBAL_STYLE_DIAGNOSTIC
-Remove-Item Env:SIP_STYLE_DIAGNOSTIC
-```
-
-The subset names map respectively to the three declarations in the global
-`QWidget` rule and the background declaration in
-`QMainWindow, QWidget#mainContent`. `all`, `none`, and
-`exclude:<comma-separated-subsets>` are also accepted. Run these commands with
-the native Windows platform plugin (do not set `QT_QPA_PLATFORM=offscreen`) and
-return the `[style-diagnostic]` output for each subset. No production QSS is
-changed by this property-level filter.
-
 The native Windows workflow has also been manually validated for startup/relaunch,
 Browse scanning, restored settings, thumbnails, previews, watermark safety, both
 platform profiles, PNG-to-JPEG processing, and repeated runs.
