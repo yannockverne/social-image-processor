@@ -171,7 +171,18 @@ STYLE_DIAGNOSTIC_GROUPS = (
     "scrollbars_and_chrome",
 )
 
+# TEMPORARY: property-level follow-up for the confirmed ``global`` group.  The
+# names deliberately describe both the selector and declaration so native
+# Windows results can identify the exact QSS input without ambiguity.
+GLOBAL_STYLE_DIAGNOSTIC_SUBSETS = (
+    "qwidget-color",
+    "qwidget-font-family",
+    "qwidget-font-size",
+    "main-window-background-color",
+)
+
 _QSS_RULE = re.compile(r"(?:/\*.*?\*/\s*)?([^{}]+)\{[^{}]*\}", re.DOTALL)
+_QSS_DECLARATION = re.compile(r"([\w-]+)\s*:\s*([^;]+);", re.DOTALL)
 
 
 def _style_group(selector: str) -> str:
@@ -230,13 +241,64 @@ def diagnostic_style_selection(value: str) -> set[str]:
     return requested if operation == "include" else all_groups - requested
 
 
-def diagnostic_stylesheet(enabled: set[str]) -> str:
+def diagnostic_global_selection(value: str) -> set[str]:
+    """Resolve the temporary property-level selection within ``global``."""
+    all_subsets = set(GLOBAL_STYLE_DIAGNOSTIC_SUBSETS)
+    normalized = value.strip().lower()
+    if normalized in ("all", ""):
+        return all_subsets
+    if normalized == "none":
+        return set()
+    operation, separator, names = normalized.partition(":")
+    if not separator or operation not in ("include", "exclude"):
+        raise ValueError("expected all, none, include:<subsets>, or exclude:<subsets>")
+    requested = {name.strip() for name in names.split(",") if name.strip()}
+    unknown = requested - all_subsets
+    if unknown:
+        raise ValueError(
+            f"unknown global stylesheet subset(s): {', '.join(sorted(unknown))}"
+        )
+    return requested if operation == "include" else all_subsets - requested
+
+
+def _global_subset(selector: str, property_name: str) -> str | None:
+    """Return the diagnostic name for one declaration in a global rule."""
+    normalized_selector = " ".join(selector.split())
+    if normalized_selector == "QWidget" and property_name in (
+        "color",
+        "font-family",
+        "font-size",
+    ):
+        return f"qwidget-{property_name}"
+    if (
+        normalized_selector == "QMainWindow, QWidget#mainContent"
+        and property_name == "background-color"
+    ):
+        return "main-window-background-color"
+    return None
+
+
+def diagnostic_stylesheet(
+    enabled: set[str], global_subsets: set[str] | None = None
+) -> str:
     """Filter complete rules while retaining their original cascade order."""
-    return "\n".join(
-        match.group(0)
-        for match in _QSS_RULE.finditer(STYLESHEET)
-        if _style_group(match.group(1)) in enabled
-    )
+    selected_rules: list[str] = []
+    for match in _QSS_RULE.finditer(STYLESHEET):
+        selector = match.group(1).strip()
+        group = _style_group(selector)
+        if group not in enabled:
+            continue
+        if group != "global" or global_subsets is None:
+            selected_rules.append(match.group(0))
+            continue
+        declarations = [
+            f"    {property_name}: {value.strip()};"
+            for property_name, value in _QSS_DECLARATION.findall(match.group(0))
+            if _global_subset(selector, property_name) in global_subsets
+        ]
+        if declarations:
+            selected_rules.append(f"{selector} {{\n" + "\n".join(declarations) + "\n}")
+    return "\n".join(selected_rules)
 
 
 def configure_application_font(application: QApplication) -> None:
@@ -264,4 +326,8 @@ def apply_theme(widget: QWidget) -> None:
         widget.setStyleSheet(STYLESHEET)
         return
     enabled = diagnostic_style_selection(diagnostic_mode)
-    widget.setStyleSheet(diagnostic_stylesheet(enabled))
+    global_mode = os.environ.get("SIP_GLOBAL_STYLE_DIAGNOSTIC")
+    global_subsets = (
+        diagnostic_global_selection(global_mode) if global_mode is not None else None
+    )
+    widget.setStyleSheet(diagnostic_stylesheet(enabled, global_subsets))

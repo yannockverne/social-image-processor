@@ -45,7 +45,12 @@ from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel
 from app.ui.main_window import MainWindow
-from app.ui.theme import apply_theme, configure_application_font
+from app.ui.theme import (
+    apply_theme,
+    configure_application_font,
+    diagnostic_global_selection,
+    diagnostic_stylesheet,
+)
 from app.ui.workers import FunctionWorker
 
 
@@ -78,6 +83,41 @@ def test_theme_preserves_pixel_sized_application_font(application) -> None:
     finally:
         application.setFont(original_font)
         widget.close()
+
+
+@pytest.mark.parametrize(
+    ("subset", "expected", "unexpected"),
+    (
+        ("qwidget-color", "color: #e7eaf0;", "font-family:"),
+        (
+            "qwidget-font-family",
+            'font-family: "Segoe UI", "Inter", sans-serif;',
+            "font-size:",
+        ),
+        ("qwidget-font-size", "font-size: 13px;", "font-family:"),
+        (
+            "main-window-background-color",
+            "background-color: #111419;",
+            "font-family:",
+        ),
+    ),
+)
+def test_global_style_diagnostic_isolates_one_declaration(
+    subset: str, expected: str, unexpected: str
+) -> None:
+    stylesheet = diagnostic_stylesheet({"global"}, {subset})
+
+    assert expected in stylesheet
+    assert unexpected not in stylesheet
+    assert stylesheet.count(";") == 1
+
+
+def test_global_style_diagnostic_validates_subset_names() -> None:
+    assert diagnostic_global_selection("include:qwidget-font-family") == {
+        "qwidget-font-family"
+    }
+    with pytest.raises(ValueError, match="unknown global stylesheet subset"):
+        diagnostic_global_selection("include:not-a-subset")
 
 
 def test_theme_text_edit_family_preserves_inherited_pixel_size(application) -> None:
