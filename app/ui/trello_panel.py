@@ -12,10 +12,12 @@ from PySide6.QtWidgets import (
     QDialogButtonBox,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QVBoxLayout,
 )
 
@@ -58,6 +60,10 @@ class TrelloPanel(QFrame):
         title = QLabel("TRELLO")
         title.setObjectName("sectionTitle")
         self.status = QLabel("Not connected")
+        # Connection and upload messages are useful context, but they must not
+        # make this optional panel dictate the window's minimum width.  QLabel
+        # will simply clip a particularly long service error in a narrow window.
+        self.status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.connect_button = QPushButton("Connect Trello")
         self.connect_button.clicked.connect(self.connect_trello)
         self.credentials_button = QPushButton("Change credentials")
@@ -69,14 +75,25 @@ class TrelloPanel(QFrame):
         header.addWidget(self.connect_button)
         header.addWidget(self.credentials_button)
         layout.addLayout(header)
-        form = QFormLayout()
+        # Board, list, and card form one dependent choice, so present them as a
+        # single compact row instead of three full-width form rows.  Besides
+        # making that relationship clearer, this removes two control heights
+        # from MainWindow's minimumSizeHint on the roomier Windows style.
+        selectors = QGridLayout()
+        selectors.setHorizontalSpacing(10)
+        selectors.setVerticalSpacing(3)
         self.board, self.trello_list, self.card = QComboBox(), QComboBox(), QComboBox()
-        form.addRow("Board", self.board)
-        form.addRow("List", self.trello_list)
-        form.addRow("Card", self.card)
-        layout.addLayout(form)
+        for column, (label_text, selector) in enumerate(
+            (("Board", self.board), ("List", self.trello_list), ("Card", self.card))
+        ):
+            selector.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            selectors.addWidget(QLabel(label_text), 0, column)
+            selectors.addWidget(selector, 1, column)
+            selectors.setColumnStretch(column, 1)
+        layout.addLayout(selectors)
         upload = QHBoxLayout()
         self.files_status = QLabel("No processed files ready")
+        self.files_status.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         self.attach_button = QPushButton("ATTACH TO CARD")
         self.attach_button.clicked.connect(self.attach_to_card)
         upload.addWidget(self.files_status)
