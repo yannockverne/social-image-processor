@@ -36,7 +36,7 @@ QFrame#card, QWidget#previewPanel, QFrame#footer {{
     border: 1px solid #2a3039;
     border-radius: 8px;
 }}
-QLineEdit, QSpinBox {{
+QLineEdit, QSpinBox, QComboBox {{
     min-height: 30px;
     padding: 0 9px;
     background-color: #12151a;
@@ -44,8 +44,8 @@ QLineEdit, QSpinBox {{
     border-radius: 5px;
     selection-background-color: {ACCENT};
 }}
-QLineEdit:hover, QSpinBox:hover {{ border-color: #485261; }}
-QLineEdit:focus, QSpinBox:focus {{ border: 1px solid {ACCENT}; }}
+QLineEdit:hover, QSpinBox:hover, QComboBox:hover {{ border-color: #485261; }}
+QLineEdit:focus, QSpinBox:focus, QComboBox:focus {{ border: 1px solid {ACCENT}; }}
 QPushButton {{
     min-height: 30px;
     padding: 0 13px;

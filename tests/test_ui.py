@@ -344,15 +344,11 @@ def test_platform_check_state_integer_transitions(
     window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
     index = window.model.index(0, column)
 
-    assert window.model.setData(
-        index, Qt.CheckState.Checked.value, Qt.CheckStateRole
-    )
+    assert window.model.setData(index, Qt.CheckState.Checked.value, Qt.CheckStateRole)
     assert getattr(window.model.items[0], attribute) is True
     assert window.model.data(index, Qt.CheckStateRole) == Qt.Checked
 
-    assert window.model.setData(
-        index, Qt.CheckState.Unchecked.value, Qt.CheckStateRole
-    )
+    assert window.model.setData(index, Qt.CheckState.Unchecked.value, Qt.CheckStateRole)
     assert getattr(window.model.items[0], attribute) is False
     assert window.model.data(index, Qt.CheckStateRole) == Qt.Unchecked
 
