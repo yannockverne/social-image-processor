@@ -11,7 +11,7 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 from PIL import Image
-from PySide6.QtCore import QElapsedTimer, QItemSelectionModel, Qt
+from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
@@ -64,6 +64,27 @@ def window(application, tmp_path: Path):
     for _ in range(6):
         application.processEvents()
         widget.pool.waitForDone(5000)
+    application.processEvents()
+    widget.close()
+
+
+class EmptySettingsService:
+    """Keep focused UI tests independent of persisted application state."""
+
+    def load(self) -> ApplicationSettings:
+        return ApplicationSettings()
+
+    def save(self, settings: ApplicationSettings) -> None:
+        pass
+
+
+@pytest.fixture
+def window_without_restored_paths(application):
+    """Create a window whose deferred restoration callback cannot start a scan."""
+    widget = MainWindow(EmptySettingsService())
+    yield widget
+    application.processEvents()
+    assert widget.pool.waitForDone(5000)
     application.processEvents()
     widget.close()
 
@@ -311,28 +332,16 @@ def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) 
     ),
 )
 def test_platform_checkbox_toggles_from_table_view(
-    window, application, column: int, attribute: str
+    window_without_restored_paths, application, column: int, attribute: str
 ) -> None:
+    window = window_without_restored_paths
     window.show()
-
-    # MainWindow schedules its restored-path scan for the next event-loop turn.
-    # Let that initialization finish before installing this test's model row so
-    # a late empty scan result cannot replace it on slower/native platforms.
-    drain_window_work(application, window)
-    expected_path = Path("one.png")
-    window.model.replace_items([ImageItem(expected_path, 10, 5, 100)], 1)
-
-    wait = QElapsedTimer()
-    wait.start()
     application.processEvents()
-    while (
-        not window.model.items or window.model.items[0].path != expected_path
-    ) and wait.elapsed() < 5000:
-        application.processEvents()
-        QTest.qWait(10)
 
-    assert window.model.rowCount() > 0
-    assert window.model.items[0].path == expected_path
+    # The fake settings service guarantees that the construction-time
+    # _scan_restored_paths callback has no path from which to start a worker.
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
+    assert window.model.rowCount() == 1
 
     index = window.model.index(0, column)
     assert index.isValid()
