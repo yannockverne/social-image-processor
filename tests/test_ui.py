@@ -13,6 +13,7 @@ pytest.importorskip(
 from PIL import Image
 from PySide6.QtCore import QItemSelectionModel, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtTest import QTest
 from PySide6.QtWidgets import QApplication, QFileDialog, QMessageBox
 
 from app.models.image_item import ImageItem
@@ -300,6 +301,34 @@ def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) 
     assert window.model.items[0].export_to_instagram
     assert not window.model.set_thumbnail(0, 3, QPixmap(2, 2))
     assert window.model.data(window.model.index(0, 0), Qt.DecorationRole) is None
+
+
+@pytest.mark.parametrize(
+    ("column", "attribute"),
+    (
+        (ImageTableModel.X, "export_to_x"),
+        (ImageTableModel.INSTAGRAM, "export_to_instagram"),
+    ),
+)
+def test_platform_checkbox_toggles_from_table_view(
+    window, application, column: int, attribute: str
+) -> None:
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
+    window.show()
+    application.processEvents()
+
+    index = window.model.index(0, column)
+    assert not getattr(window.model.items[0], attribute)
+
+    QTest.mouseClick(
+        window.table.viewport(),
+        Qt.LeftButton,
+        Qt.NoModifier,
+        window.table.visualRect(index).center(),
+    )
+    application.processEvents()
+
+    assert getattr(window.model.items[0], attribute)
 
 
 def test_selection_and_watermark_toggle_refresh_preview(window, monkeypatch) -> None:
