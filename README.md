@@ -7,16 +7,18 @@ files without modifying their originals.
 
 **V1 version:** `0.1.0`
 
-## Optional Trello browsing (Milestone 1)
+## Optional Trello attachments (Milestone 2)
 
 The separate Trello panel can connect and browse open **Board → List → Card**
 destinations. Choices are dependent and the application never selects a destination
-card automatically. This milestone is read-only: it does not create cards, alter
-checklists, or upload attachments. Trello errors remain in the Trello panel and do
-not disable local image processing.
+card automatically. After processing, **ATTACH TO CARD** uploads only the current
+batch's successful outputs, and only after an explicit click. Per-file upload errors
+remain in the Trello panel and never affect local exports.
 
 On Windows, the API key and user token are stored as one generic credential in
-Windows Credential Manager under `SocialImageProcessor/Trello`. They are never
+Windows Credential Manager under `SocialImageProcessor/Trello`. **Change
+credentials** replaces the saved API key and token without manual vault cleanup.
+Credentials are never
 written to `settings.json`. The implementation uses Windows' built-in credential
 API and Python's standard HTTP library, so adding `keyring` or another runtime
 dependency was not justified for this Windows-targeted application. Source builds
@@ -109,7 +111,7 @@ and non-secret preferences only. Missing, incomplete, stale, inaccessible, or
 corrupt settings recover safely.
 
 Image processing works fully offline. The optional Trello panel makes network
-requests only after **Connect Trello** is clicked. There is no telemetry, Make,
+requests only after an explicit Trello panel action. There is no telemetry, Make,
 Buffer, or direct social-publishing integration.
 
 ## Architecture
@@ -155,8 +157,8 @@ platform profiles, PNG-to-JPEG processing, and repeated runs.
 
 V1 intentionally has no recursion, cancellation, drag and drop, crop editor,
 automatic Instagram 4:5 conversion, resizing, watermark scaling fallback,
-per-image watermark overrides, metadata-policy UI, direct publishing, Trello
-attachment upload, or remote content mutation. It preserves raw stored dimensions
+per-image watermark overrides, metadata-policy UI, direct publishing, Trello card
+creation, or checklist manipulation. It preserves raw stored dimensions
 but does not guarantee
 metadata identity or apply EXIF orientation transformations. A close request is
 rejected while background work is active; wait for it to finish.

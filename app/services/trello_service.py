@@ -1,8 +1,8 @@
-"""Synchronous, testable Trello reads and Windows credential storage.
+"""Synchronous, testable Trello operations and Windows credential storage.
 
-The UI runs service calls through its existing Qt worker pool.  The standard
-library HTTP client is sufficient for this read-only milestone, avoiding a new
-runtime dependency.  On Windows credentials are stored by Credential Manager,
+The UI runs service calls through its existing Qt worker pool. The standard
+library HTTP client handles browsing and explicit attachment uploads without a
+new runtime dependency. On Windows credentials are stored by Credential Manager,
 not in the application's JSON settings.
 """
 
@@ -12,12 +12,21 @@ import ctypes
 from ctypes import wintypes
 import json
 import sys
+from pathlib import Path
+import mimetypes
+import uuid
 from typing import Protocol
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from app.models.trello import TrelloBoard, TrelloCard, TrelloCredentials, TrelloList
+from app.models.trello import (
+    TrelloAttachmentResult,
+    TrelloBoard,
+    TrelloCard,
+    TrelloCredentials,
+    TrelloList,
+)
 
 
 class TrelloError(RuntimeError):
@@ -154,6 +163,18 @@ class TrelloService:
             raise TrelloError("Trello returned an unexpected response.")
         return value
 
+    @staticmethod
+    def _raise_transport_error(error: Exception) -> None:
+        if isinstance(error, HTTPError):
+            if error.code in (401, 403):
+                raise TrelloError(
+                    "Trello authentication failed. Check the API key and token."
+                ) from error
+            raise TrelloError(f"Trello API error ({error.code}).") from error
+        raise TrelloError(
+            "Trello is unavailable. Check the network connection."
+        ) from error
+
     def list_boards(self) -> list[TrelloBoard]:
         return [
             TrelloBoard(item["id"], item["name"])
@@ -175,3 +196,57 @@ class TrelloService:
                 f"/lists/{list_id}/cards", fields="name", filter="open"
             )
         ]
+
+    def upload_attachment(self, card_id: str, path: Path) -> None:
+        """Attach one existing processed file to *card_id* using multipart POST."""
+        path = Path(path)
+        if not path.is_file():
+            raise TrelloError(f"Processed file is unavailable: {path.name}")
+        boundary = f"sip-{uuid.uuid4().hex}"
+        content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+        body = (
+            (
+                f"--{boundary}\r\n"
+                f'Content-Disposition: form-data; name="file"; filename="{path.name}"\r\n'
+                f"Content-Type: {content_type}\r\n\r\n"
+            ).encode()
+            + path.read_bytes()
+            + f"\r\n--{boundary}--\r\n".encode()
+        )
+        query = urlencode(
+            {"key": self.credentials.api_key, "token": self.credentials.token}
+        )
+        request = Request(
+            f"{self.base_url}/cards/{card_id}/attachments?{query}",
+            data=body,
+            method="POST",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": f"multipart/form-data; boundary={boundary}",
+            },
+        )
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                json.load(response)
+        except (HTTPError, URLError, TimeoutError, OSError) as error:
+            self._raise_transport_error(error)
+        except (json.JSONDecodeError, UnicodeError) as error:
+            raise TrelloError("Trello returned an invalid response.") from error
+
+    def upload_attachments(
+        self, card_id: str, paths: list[Path] | tuple[Path, ...]
+    ) -> list[TrelloAttachmentResult]:
+        """Upload each unique path independently and retain every outcome."""
+        results = []
+        seen: set[str] = set()
+        for path in map(Path, paths):
+            identity = str(path.resolve()).casefold()
+            if identity in seen:
+                continue
+            seen.add(identity)
+            try:
+                self.upload_attachment(card_id, path)
+                results.append(TrelloAttachmentResult(path, True))
+            except Exception as error:
+                results.append(TrelloAttachmentResult(path, False, str(error)))
+        return results
