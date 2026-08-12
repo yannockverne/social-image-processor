@@ -149,5 +149,19 @@ def apply_theme(widget: QWidget) -> None:
     """Apply the application theme without affecting domain behavior."""
     application = QApplication.instance()
     if application is not None:
-        application.setFont(QFont("Segoe UI", 10))
+        font = QFont(application.font())
+        font.setFamily("Segoe UI")
+
+        # A font described in pixels legitimately has no point size.  Passing
+        # that sentinel (-1) back through Qt's point-size API produces a
+        # QFont::setPointSize warning on Windows and changes its sizing mode.
+        point_size = font.pointSize()
+        if point_size > 0:
+            font.setPointSize(10)
+        else:
+            pixel_size = font.pixelSize()
+            if pixel_size > 0:
+                font.setPixelSize(pixel_size)
+
+        application.setFont(font)
     widget.setStyleSheet(STYLESHEET)
