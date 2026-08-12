@@ -111,6 +111,11 @@ QTextEdit {{
     padding: 8px;
     color: #cbd1da;
     font-family: "Cascadia Mono", "Consolas", monospace;
+    /* Keep the inherited pixel sizing mode explicit when changing families.
+       On the Windows style engine, resolving a family-only QTextEdit rule
+       against QWidget's pixel-sized font feeds pointSize() (-1) back into
+       QFont::setPointSize. */
+    font-size: 13px;
     selection-background-color: #315f8d;
 }}
 QLabel#previewTitle {{ color: #f0f2f6; font-size: 14px; font-weight: 700; }}

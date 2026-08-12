@@ -11,7 +11,13 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 from PIL import Image
-from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt
+from PySide6.QtCore import (
+    QItemSelectionModel,
+    QModelIndex,
+    Qt,
+    QtMsgType,
+    qInstallMessageHandler,
+)
 from PySide6.QtGui import QCloseEvent, QFont, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -20,6 +26,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QStyle,
     QStyleOptionViewItem,
+    QTextEdit,
     QWidget,
 )
 
@@ -68,6 +75,33 @@ def test_theme_preserves_pixel_sized_application_font(application) -> None:
         assert themed_font.pixelSize() == 17
         assert themed_font.family() == "Segoe UI"
     finally:
+        application.setFont(original_font)
+        widget.close()
+
+
+def test_theme_text_edit_family_preserves_inherited_pixel_size(application) -> None:
+    """A family override must not reinterpret QWidget's pixel size as points."""
+    original_font = QFont(application.font())
+    messages: list[str] = []
+
+    def capture_font_warnings(message_type, _context, message) -> None:
+        if message_type == QtMsgType.QtWarningMsg:
+            messages.append(message)
+
+    previous_handler = qInstallMessageHandler(capture_font_warnings)
+    widget = QWidget()
+    editor = QTextEdit(widget)
+
+    try:
+        apply_theme(widget)
+        widget.ensurePolished()
+        editor.ensurePolished()
+        application.processEvents()
+
+        assert editor.font().pixelSize() == 13
+        assert not any("QFont::setPointSize" in message for message in messages)
+    finally:
+        qInstallMessageHandler(previous_handler)
         application.setFont(original_font)
         widget.close()
 
