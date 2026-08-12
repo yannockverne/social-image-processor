@@ -151,6 +151,18 @@ def test_partial_upload_failure_is_clear(panel) -> None:
     ]
 
 
+def test_retry_retains_failed_files_in_original_relative_order(panel) -> None:
+    panel._attachments_uploaded(
+        [
+            TrelloAttachmentResult(Path("first.jpg"), False, "failed"),
+            TrelloAttachmentResult(Path("second.jpg"), True),
+            TrelloAttachmentResult(Path("third.jpg"), False, "failed"),
+        ]
+    )
+
+    assert panel.processed_files == (Path("first.jpg"), Path("third.jpg"))
+
+
 def test_change_credentials_replaces_stored_values(panel, monkeypatch) -> None:
     replacement = TrelloCredentials("new-key", "new-token")
     monkeypatch.setattr(panel, "_prompt_credentials", lambda: replacement)

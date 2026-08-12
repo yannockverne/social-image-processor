@@ -63,7 +63,7 @@ def test_api_and_authentication_failures_are_readable(
 
 
 def test_successful_multiple_attachment_uploads(monkeypatch, tmp_path: Path) -> None:
-    files = [tmp_path / "X_one.jpg", tmp_path / "Insta_one.jpg"]
+    files = [tmp_path / "X_01.jpg", tmp_path / "Insta_01.jpg"]
     for index, path in enumerate(files):
         path.write_bytes(f"image-{index}".encode())
     requests = []
@@ -81,7 +81,9 @@ def test_successful_multiple_attachment_uploads(monkeypatch, tmp_path: Path) -> 
     assert len(requests) == 2
     assert all(request.method == "POST" for request in requests)
     assert all("/cards/card-1/attachments" in request.full_url for request in requests)
-    assert files[0].read_bytes() in requests[0].data
+    for file, request in zip(files, requests, strict=True):
+        assert f'filename="{file.name}"'.encode() in request.data
+        assert file.read_bytes() in request.data
 
 
 def test_partial_attachment_failure_is_retained(monkeypatch, tmp_path: Path) -> None:

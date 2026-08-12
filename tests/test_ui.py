@@ -11,8 +11,14 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 from PIL import Image
-from PySide6.QtCore import QItemSelectionModel, Qt
-from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtCore import (
+    QItemSelectionModel,
+    QModelIndex,
+    Qt,
+    QtMsgType,
+    qInstallMessageHandler,
+)
+from PySide6.QtGui import QCloseEvent, QFont, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -20,6 +26,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QStyle,
     QStyleOptionViewItem,
+    QTextEdit,
+    QWidget,
 )
 
 from app.models.image_item import ImageItem
@@ -37,6 +45,7 @@ from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel
 from app.ui.main_window import MainWindow
+from app.ui.theme import apply_theme, configure_application_font
 from app.ui.workers import FunctionWorker
 
 
@@ -49,6 +58,117 @@ def process_deferred_scan(application) -> None:
     """Run both the scan-source timer and the coalesced dispatch timer."""
     application.processEvents()
     application.processEvents()
+
+
+def test_theme_uses_valid_application_font_for_default_text_size(application) -> None:
+    original_font = QFont(application.font())
+    point_font = QFont(original_font)
+    point_font.setPointSize(9)
+    application.setFont(point_font)
+    messages: list[str] = []
+
+    def capture_font_warnings(message_type, _context, message) -> None:
+        if message_type == QtMsgType.QtWarningMsg:
+            messages.append(message)
+
+    previous_handler = qInstallMessageHandler(capture_font_warnings)
+    widget = None
+
+    try:
+        configure_application_font(application)
+        widget = QWidget()
+        apply_theme(widget)
+        widget.ensurePolished()
+        application.processEvents()
+
+        assert application.font().family() == "Segoe UI"
+        assert application.font().pointSize() == 10
+        assert widget.font().family() == "Segoe UI"
+        assert widget.font().pointSize() == 10
+        assert not any("QFont::setPointSize" in message for message in messages)
+        global_rule = widget.styleSheet().split("QMainWindow", 1)[0]
+        assert "font-size" not in global_rule
+    finally:
+        qInstallMessageHandler(previous_handler)
+        application.setFont(original_font)
+        if widget is not None:
+            widget.close()
+
+
+def test_theme_preserves_pixel_sized_application_font(application) -> None:
+    original_font = QFont(application.font())
+    pixel_font = QFont(original_font)
+    pixel_font.setPixelSize(17)
+    application.setFont(pixel_font)
+    widget = QWidget()
+
+    try:
+        configure_application_font(application)
+        apply_theme(widget)
+
+        themed_font = application.font()
+        assert themed_font.pointSize() == -1
+        assert themed_font.pixelSize() == 17
+        assert themed_font.family() == "Segoe UI"
+    finally:
+        application.setFont(original_font)
+        widget.close()
+
+
+def test_theme_text_edit_family_preserves_inherited_pixel_size(application) -> None:
+    """A family override must not reinterpret QWidget's pixel size as points."""
+    original_font = QFont(application.font())
+    messages: list[str] = []
+
+    def capture_font_warnings(message_type, _context, message) -> None:
+        if message_type == QtMsgType.QtWarningMsg:
+            messages.append(message)
+
+    previous_handler = qInstallMessageHandler(capture_font_warnings)
+    widget = QWidget()
+    editor = QTextEdit(widget)
+
+    try:
+        configure_application_font(application)
+        apply_theme(widget)
+        widget.ensurePolished()
+        editor.ensurePolished()
+        application.processEvents()
+
+        assert editor.font().pixelSize() == 13
+        assert not any("QFont::setPointSize" in message for message in messages)
+    finally:
+        qInstallMessageHandler(previous_handler)
+        application.setFont(original_font)
+        widget.close()
+
+
+def test_normal_window_startup_has_no_invalid_point_size_warning(
+    application, tmp_path: Path
+) -> None:
+    """Exercise dynamic children, QTextEdit, table, and both header paths."""
+    original_font = QFont(application.font())
+    messages: list[str] = []
+
+    def capture_font_warnings(message_type, _context, message) -> None:
+        if message_type == QtMsgType.QtWarningMsg:
+            messages.append(message)
+
+    configure_application_font(application)
+    previous_handler = qInstallMessageHandler(capture_font_warnings)
+    window = MainWindow(SettingsService(tmp_path / "settings.json"))
+    try:
+        window.ensurePolished()
+        for child in window.findChildren(QWidget):
+            child.ensurePolished()
+        window.table.horizontalHeader().ensurePolished()
+        window.table.verticalHeader().ensurePolished()
+        application.processEvents()
+        assert not any("QFont::setPointSize" in message for message in messages)
+    finally:
+        window.close()
+        qInstallMessageHandler(previous_handler)
+        application.setFont(original_font)
 
 
 def drain_window_work(application, window) -> None:
@@ -357,6 +477,47 @@ def test_platform_check_state_integer_transitions(
     assert window.model.setData(index, Qt.CheckState.Unchecked.value, Qt.CheckStateRole)
     assert getattr(window.model.items[0], attribute) is False
     assert window.model.data(index, Qt.CheckStateRole) == Qt.Unchecked
+
+
+def test_move_buttons_reorder_complete_items_and_update_order(window) -> None:
+    first = ImageItem(Path("first.png"), 10, 5, 100, True, False)
+    second = ImageItem(Path("second.png"), 20, 7, 200, False, True)
+    window.model.replace_items([first, second], 1)
+    window.table.selectRow(1)
+
+    window.move_up_button.click()
+
+    assert window.model.items == [second, first]
+    assert window.model.items[0].dimensions == (20, 7)
+    assert window.model.items[0].export_to_instagram
+    assert not window.model.items[0].export_to_x
+    assert window.model.data(window.model.index(0, ImageTableModel.ORDER)) == 1
+    window.move_down_button.click()
+    assert window.model.items == [first, second]
+
+
+def test_table_toolbar_ends_at_table_edge_before_preview(window, application) -> None:
+    window.show()
+    application.processEvents()
+
+    assert window.move_up_button.parentWidget() is window.table_area
+    assert window.move_down_button.parentWidget() is window.table_area
+    assert window.table.parentWidget() is window.table_area
+    assert window.move_down_button.geometry().right() == window.table.geometry().right()
+    assert window.table_area.geometry().right() < window.preview.geometry().left()
+
+
+def test_drag_drop_reorders_model_items(window) -> None:
+    items = [
+        ImageItem(Path("a.png"), 1, 1, 1),
+        ImageItem(Path("b.png"), 2, 2, 2),
+        ImageItem(Path("c.png"), 3, 3, 3),
+    ]
+    window.model.replace_items(items, 1)
+    mime_data = window.model.mimeData([window.model.index(0, 0)])
+
+    assert window.model.dropMimeData(mime_data, Qt.MoveAction, 3, 0, QModelIndex())
+    assert window.model.items == [items[1], items[2], items[0]]
 
 
 @pytest.mark.parametrize(

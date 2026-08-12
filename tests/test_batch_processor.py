@@ -47,7 +47,7 @@ def _run(
 
 @pytest.mark.parametrize(
     ("x", "instagram", "expected"),
-    [(True, False, ["X_source.jpg"]), (False, True, ["Insta_source.jpg"])],
+    [(True, False, ["X_01.jpg"]), (False, True, ["Insta_01.jpg"])],
 )
 def test_single_platform_selection_creates_one_output(
     tmp_path: Path, x: bool, instagram: bool, expected: list[str]
@@ -79,8 +79,8 @@ def test_dual_selection_prepares_once_and_creates_both_outputs(
 
     assert calls == 1
     assert {export.output_path.name for export in result.exports} == {
-        "X_source.jpg",
-        "Insta_source.jpg",
+        "X_01.jpg",
+        "Insta_01.jpg",
     }
     assert result.statistics.processed_source_count == 1
     assert result.processed_source_size_bytes == source.stat().st_size
@@ -192,12 +192,11 @@ def test_one_platform_failure_isolated_and_statistics_count_only_success(
     assert result.statistics.successful_output_count == 1
     assert result.processed_source_size_bytes == 1000
     assert (
-        result.output_size_bytes
-        == (tmp_path / "out" / "Insta_source.jpg").stat().st_size
+        result.output_size_bytes == (tmp_path / "out" / "Insta_01.jpg").stat().st_size
     )
 
 
-def test_duplicate_names_are_reserved_across_multi_output_batch(tmp_path: Path) -> None:
+def test_source_names_are_omitted_across_multi_output_batch(tmp_path: Path) -> None:
     first_dir = tmp_path / "a"
     second_dir = tmp_path / "b"
     first_dir.mkdir()
@@ -209,8 +208,30 @@ def test_duplicate_names_are_reserved_across_multi_output_batch(tmp_path: Path) 
 
     result = _run([_source(first, x=True), _source(second, x=True)], tmp_path / "out")
     assert [export.output_path.name for export in result.exports] == [
-        "X_same.jpg",
-        "X_same_2.jpg",
+        "X_01.jpg",
+        "X_02.jpg",
+    ]
+
+
+def test_manual_order_drives_independent_platform_numbering(tmp_path: Path) -> None:
+    paths = [tmp_path / name for name in ("c.png", "a.png", "b.png")]
+    for path in paths:
+        Image.new("RGB", (8, 4)).save(path)
+
+    result = _run(
+        [
+            _source(paths[0], x=True, instagram=True),
+            _source(paths[1], x=True),
+            _source(paths[2], instagram=True),
+        ],
+        tmp_path / "out",
+    )
+
+    assert [export.output_path.name for export in result.exports] == [
+        "X_01.jpg",
+        "Insta_01.jpg",
+        "X_02.jpg",
+        "Insta_02.jpg",
     ]
 
 

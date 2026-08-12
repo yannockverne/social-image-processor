@@ -1,4 +1,4 @@
-"""Collision-safe V1 output filename allocation."""
+"""Collision-safe sequence-based output filename allocation."""
 
 from __future__ import annotations
 
@@ -19,13 +19,15 @@ class OutputNameAllocator:
         self._reserved: set[str] = set()
 
     def allocate(
-        self, source_path: Path, profile: ExportProfile | ExportPlatform | str
+        self,
+        profile: ExportProfile | ExportPlatform | str,
+        sequence_number: int,
     ) -> Path:
-        """Reserve and return the first available profile-prefixed JPG path."""
+        """Reserve and return a profile-prefixed, zero-padded sequence path."""
         if not isinstance(profile, ExportProfile):
             profile = get_profile(profile)
 
-        base_name = f"{profile.filename_prefix}{source_path.stem}"
+        base_name = f"{profile.filename_prefix}{sequence_number:02d}"
         suffix_number: int | None = None
         while True:
             suffix = "" if suffix_number is None else f"_{suffix_number}"

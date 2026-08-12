@@ -30,6 +30,8 @@ Trello credentials.
 - Non-recursive, case-insensitive scanning of PNG, JPG, and JPEG files.
 - Asynchronous thumbnails, previews, scans, and batch processing in a PySide6 UI.
 - Independent X and Instagram choices per image, including dual export.
+- Drag-and-drop image ordering with Move Up/Move Down controls; visible row order
+  drives processing, platform numbering, and Trello attachment order.
 - JPEG quality from 70 to 100 (default 92), original pixel dimensions, no crop,
   and no resize.
 - Strict exact-resolution, full-frame PNG watermark matching and preview.
@@ -38,9 +40,10 @@ Trello credentials.
 - Per-file errors, progress, logs, and signed size/reduction statistics.
 - Local settings restoration and robust handling of stale paths and corrupt files.
 
-X outputs use `X_` and Instagram outputs use `Insta_`. For example, selecting both
-platforms for `photo.png` creates `X_photo.jpg` and `Insta_photo.jpg`. Existing
-names are preserved; later files become `X_photo_2.jpg`, `X_photo_3.jpg`, and so on.
+X outputs use `X_` and Instagram outputs use `Insta_`. Platform selections are
+numbered independently in visible table order; for example, the first selected
+`photo.png` creates `X_01_photo.jpg` and `Insta_01_photo.jpg`. Existing names are
+preserved; collisions gain `_2`, `_3`, and so on.
 Both profiles preserve the source framing and dimensions in V1.
 
 ## Requirements
@@ -155,7 +158,7 @@ platform profiles, PNG-to-JPEG processing, and repeated runs.
 
 ## Current limitations
 
-V1 intentionally has no recursion, cancellation, drag and drop, crop editor,
+V1 intentionally has no recursion, cancellation, crop editor,
 automatic Instagram 4:5 conversion, resizing, watermark scaling fallback,
 per-image watermark overrides, metadata-policy UI, direct publishing, Trello card
 creation, or checklist manipulation. It preserves raw stored dimensions

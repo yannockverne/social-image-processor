@@ -13,7 +13,6 @@ STYLESHEET = f"""
 QWidget {{
     color: #e7eaf0;
     font-family: "Segoe UI", "Inter", sans-serif;
-    font-size: 13px;
 }}
 QMainWindow, QWidget#mainContent {{ background-color: #111419; }}
 QLabel {{ background: transparent; }}
@@ -111,6 +110,7 @@ QTextEdit {{
     padding: 8px;
     color: #cbd1da;
     font-family: "Cascadia Mono", "Consolas", monospace;
+    font-size: 13px;
     selection-background-color: #315f8d;
 }}
 QLabel#previewTitle {{ color: #f0f2f6; font-size: 14px; font-weight: 700; }}
@@ -145,9 +145,23 @@ QToolTip {{ background-color: #282e37; color: #f0f2f5; border: 1px solid #424b58
 """
 
 
+def configure_application_font(application: QApplication) -> None:
+    """Set the base font before any widgets can inherit or polish it.
+
+    The application font supplies the default text size, so the global QWidget
+    rule does not need a pixel-size override.  Keeping the default in point
+    units avoids passing a pixel font's invalid point-size sentinel through the
+    native Windows style while retaining the established 10-point visual scale.
+    """
+    font = QFont(application.font())
+    font.setFamily("Segoe UI")
+    if font.pointSize() > 0:
+        font.setPointSize(10)
+    elif font.pixelSize() > 0:
+        font.setPixelSize(font.pixelSize())
+    application.setFont(font)
+
+
 def apply_theme(widget: QWidget) -> None:
-    """Apply the application theme without affecting domain behavior."""
-    application = QApplication.instance()
-    if application is not None:
-        application.setFont(QFont("Segoe UI", 10))
+    """Apply the application theme without changing inherited widget fonts."""
     widget.setStyleSheet(STYLESHEET)
