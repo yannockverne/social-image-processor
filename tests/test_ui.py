@@ -376,6 +376,17 @@ def test_move_buttons_reorder_complete_items_and_update_order(window) -> None:
     assert window.model.items == [first, second]
 
 
+def test_table_toolbar_ends_at_table_edge_before_preview(window, application) -> None:
+    window.show()
+    application.processEvents()
+
+    assert window.move_up_button.parentWidget() is window.table_area
+    assert window.move_down_button.parentWidget() is window.table_area
+    assert window.table.parentWidget() is window.table_area
+    assert window.move_down_button.geometry().right() == window.table.geometry().right()
+    assert window.table_area.geometry().right() < window.preview.geometry().left()
+
+
 def test_drag_drop_reorders_model_items(window) -> None:
     items = [
         ImageItem(Path("a.png"), 1, 1, 1),

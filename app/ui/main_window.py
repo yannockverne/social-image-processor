@@ -155,6 +155,11 @@ class MainWindow(QMainWindow):
         top.addWidget(self.trello_panel, 1)
         outer.addLayout(top)
 
+        self.table_area = QWidget()
+        table_layout = QVBoxLayout(self.table_area)
+        table_layout.setContentsMargins(0, 0, 0, 0)
+        table_layout.setSpacing(10)
+
         selections = QHBoxLayout()
         for text, column, value in (
             ("Select all X", ImageTableModel.X, True),
@@ -174,7 +179,7 @@ class MainWindow(QMainWindow):
         for button in (self.move_up_button, self.move_down_button):
             button.setProperty("role", "secondary")
             selections.addWidget(button)
-        outer.addLayout(selections)
+        table_layout.addLayout(selections)
 
         self.model = ImageTableModel(self)
         self.table = QTableView()
@@ -196,9 +201,10 @@ class MainWindow(QMainWindow):
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
         self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
+        table_layout.addWidget(self.table)
         self.preview = PreviewPanel()
         split = QSplitter(Qt.Horizontal)
-        split.addWidget(self.table)
+        split.addWidget(self.table_area)
         split.addWidget(self.preview)
         split.setSizes([850, 430])
         outer.addWidget(split, 3)
