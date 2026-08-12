@@ -91,7 +91,12 @@ class ImageTableModel(QAbstractTableModel):
         if role != Qt.CheckStateRole or index.column() not in (self.X, self.INSTAGRAM):
             return False
         item = self.items[index.row()]
-        checked = value == Qt.Checked
+        # QStyledItemDelegate supplies the check state as a Python int on some
+        # PySide6/platform combinations, while direct callers commonly supply
+        # a Qt.CheckState enum.  Python's Enum comparison does not consider the
+        # integer 2 equal to CheckState.Checked, so normalize either form first.
+        check_state = getattr(value, "value", value)
+        checked = check_state == Qt.CheckState.Checked.value
         self.items[index.row()] = replace(
             item,
             **(
