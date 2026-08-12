@@ -150,23 +150,24 @@ QToolTip {{ background-color: #282e37; color: #f0f2f5; border: 1px solid #424b58
 """
 
 
+def configure_application_font(application: QApplication) -> None:
+    """Set the base font before any widgets can inherit or polish it.
+
+    On Windows, changing the application font after constructing the widget
+    tree makes Qt propagate it through already pixel-sized stylesheet fonts.
+    QHeaderView's private section widgets then pass the pixel font's invalid
+    point-size sentinel to QFont::setPointSize.  Configuring the same visual
+    font before widget construction avoids that mixed-unit propagation path.
+    """
+    font = QFont(application.font())
+    font.setFamily("Segoe UI")
+    if font.pointSize() > 0:
+        font.setPointSize(10)
+    elif font.pixelSize() > 0:
+        font.setPixelSize(font.pixelSize())
+    application.setFont(font)
+
+
 def apply_theme(widget: QWidget) -> None:
-    """Apply the application theme without affecting domain behavior."""
-    application = QApplication.instance()
-    if application is not None:
-        font = QFont(application.font())
-        font.setFamily("Segoe UI")
-
-        # A font described in pixels legitimately has no point size.  Passing
-        # that sentinel (-1) back through Qt's point-size API produces a
-        # QFont::setPointSize warning on Windows and changes its sizing mode.
-        point_size = font.pointSize()
-        if point_size > 0:
-            font.setPointSize(10)
-        else:
-            pixel_size = font.pixelSize()
-            if pixel_size > 0:
-                font.setPixelSize(pixel_size)
-
-        application.setFont(font)
+    """Apply the application theme without changing inherited widget fonts."""
     widget.setStyleSheet(STYLESHEET)

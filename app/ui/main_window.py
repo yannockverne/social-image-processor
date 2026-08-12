@@ -10,6 +10,7 @@ from PySide6.QtCore import QItemSelection, QSignalBlocker, QThreadPool, QTimer, 
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
+    QApplication,
     QCheckBox,
     QFileDialog,
     QFormLayout,
@@ -63,6 +64,11 @@ class MainWindow(QMainWindow):
         self.catalog = WatermarkCatalog()
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(3)
+        application = QApplication.instance()
+        if application is not None:
+            # aboutToQuit can bypass closeEvent (for example, an external quit
+            # request).  Keep Qt alive until runnable signal bridges finish.
+            application.aboutToQuit.connect(self.pool.waitForDone)
         # QThreadPool owns the native QRunnable while it runs, but it does not
         # reliably keep the Python wrapper (and its QObject signal bridge)
         # alive on every PySide6 platform.  Retain each worker explicitly.
