@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -27,3 +28,12 @@ class TrelloList:
 class TrelloCard:
     id: str
     name: str
+
+
+@dataclass(frozen=True, slots=True)
+class TrelloAttachmentResult:
+    """Per-file outcome so a multi-file upload can report partial failure."""
+
+    path: Path
+    succeeded: bool
+    message: str = ""

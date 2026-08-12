@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
@@ -43,6 +44,7 @@ class TrelloPanel(QFrame):
         self.store = credential_store or WindowsCredentialStore()
         self.service_factory = service_factory
         self.service = None
+        self.processed_files: tuple[Path, ...] = ()
         layout = QVBoxLayout(self)
         # Keep this optional section compact.  Stacking the title, status, and
         # connect button made all three rows part of MainWindow's mandatory
@@ -58,10 +60,14 @@ class TrelloPanel(QFrame):
         self.status = QLabel("Not connected")
         self.connect_button = QPushButton("Connect Trello")
         self.connect_button.clicked.connect(self.connect_trello)
+        self.credentials_button = QPushButton("Change credentials")
+        self.credentials_button.clicked.connect(self.change_credentials)
+        self.credentials_button.setVisible(False)
         header.addWidget(title)
         header.addWidget(self.status)
         header.addStretch()
         header.addWidget(self.connect_button)
+        header.addWidget(self.credentials_button)
         layout.addLayout(header)
         form = QFormLayout()
         self.board, self.trello_list, self.card = QComboBox(), QComboBox(), QComboBox()
@@ -69,9 +75,19 @@ class TrelloPanel(QFrame):
         form.addRow("List", self.trello_list)
         form.addRow("Card", self.card)
         layout.addLayout(form)
+        upload = QHBoxLayout()
+        self.files_status = QLabel("No processed files ready")
+        self.attach_button = QPushButton("ATTACH TO CARD")
+        self.attach_button.clicked.connect(self.attach_to_card)
+        upload.addWidget(self.files_status)
+        upload.addStretch()
+        upload.addWidget(self.attach_button)
+        layout.addLayout(upload)
         self.board.currentIndexChanged.connect(self._board_changed)
         self.trello_list.currentIndexChanged.connect(self._list_changed)
+        self.card.currentIndexChanged.connect(self._update_attach_state)
         self._set_selectors_enabled(False)
+        self._update_attach_state()
 
     def _set_selectors_enabled(self, enabled: bool) -> None:
         for selector in (self.board, self.trello_list, self.card):
@@ -93,8 +109,28 @@ class TrelloPanel(QFrame):
                 self._show_error(str(error))
                 return
         self.service = self.service_factory(credentials)
+        # Make recovery available even when the very first request rejects
+        # credentials loaded from the Windows vault.
+        self.credentials_button.setVisible(True)
+        self.connect_button.setText("Reconnect")
         self.status.setText("Connecting…")
         self.connect_button.setEnabled(False)
+        self._run(self.service.list_boards, self._boards_loaded)
+
+    def change_credentials(self) -> None:
+        """Prompt unconditionally, replacing a bad or obsolete stored secret."""
+        credentials = self._prompt_credentials()
+        if credentials is None:
+            return
+        try:
+            self.store.save(credentials)
+        except Exception as error:
+            self._show_error(str(error))
+            return
+        self.service = self.service_factory(credentials)
+        self.status.setText("Reconnecting…")
+        self.connect_button.setEnabled(False)
+        self._set_selectors_enabled(False)
         self._run(self.service.list_boards, self._boards_loaded)
 
     def _prompt_credentials(self) -> TrelloCredentials | None:
@@ -148,6 +184,9 @@ class TrelloPanel(QFrame):
         self.status.setText(
             "Connected" if boards else "Connected — no open boards found"
         )
+        self.connect_button.setText("Reconnect")
+        self.credentials_button.setVisible(True)
+        self._update_attach_state()
 
     def _board_changed(self, _index: int) -> None:
         board_id = self.board.currentData()
@@ -176,6 +215,59 @@ class TrelloPanel(QFrame):
     def _cards_loaded(self, cards) -> None:
         self._fill(self.card, cards, "Select a card…" if cards else "No cards found")
         self.card.setEnabled(True)
+        self._update_attach_state()
+
+    def set_processed_files(self, paths) -> None:
+        """Replace upload eligibility with successful outputs from one batch."""
+        self.processed_files = tuple(Path(path) for path in paths)
+        count = len(self.processed_files)
+        self.files_status.setText(
+            f"{count} processed file{'s' if count != 1 else ''} ready"
+            if count
+            else "No processed files ready"
+        )
+        self._update_attach_state()
+
+    def _update_attach_state(self, *_args) -> None:
+        self.attach_button.setEnabled(
+            bool(self.service and self.card.currentData() and self.processed_files)
+        )
+
+    def attach_to_card(self) -> None:
+        card_id = self.card.currentData()
+        if not card_id:
+            self._show_error("Select a Trello card first.")
+            return
+        if not self.processed_files:
+            self._show_error("No processed files ready")
+            return
+        self.attach_button.setEnabled(False)
+        self.status.setText(f"Uploading {len(self.processed_files)} file(s)…")
+        self._run(
+            lambda: self.service.upload_attachments(card_id, self.processed_files),
+            self._attachments_uploaded,
+        )
+
+    def _attachments_uploaded(self, results) -> None:
+        succeeded = [result for result in results if result.succeeded]
+        failed = [result for result in results if not result.succeeded]
+        # Successful paths leave the pending set. A retry therefore targets
+        # failures only instead of creating duplicate successful attachments.
+        self.processed_files = tuple(result.path for result in failed)
+        remaining = len(self.processed_files)
+        self.files_status.setText(
+            f"{remaining} processed file{'s' if remaining != 1 else ''} ready"
+            if remaining
+            else "No processed files ready"
+        )
+        if failed:
+            details = "; ".join(f"{r.path.name}: {r.message}" for r in failed)
+            self.status.setText(
+                f"Uploaded {len(succeeded)}; failed {len(failed)} — {details}"
+            )
+        else:
+            self.status.setText(f"Uploaded {len(succeeded)} file(s) successfully")
+        self._update_attach_state()
 
     def _show_error(self, message: str) -> None:
         self.status.setText(message)
