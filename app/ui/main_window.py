@@ -48,6 +48,7 @@ from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
 from app.services.settings_service import SettingsService
 from app.ui.image_table import ImageTableModel
 from app.ui.preview_panel import PreviewPanel
+from app.ui.startup_diagnostics import marker, widget_state
 from app.ui.theme import apply_theme
 from app.ui.trello_panel import TrelloPanel
 from app.ui.workers import BatchWorker, FunctionWorker, render_preview_bytes
@@ -59,8 +60,10 @@ class MainWindow(QMainWindow):
 
     def __init__(self, settings_service: SettingsService | None = None) -> None:
         super().__init__()
+        marker("MainWindow base construction completed")
         self.settings_service = settings_service or SettingsService()
         self.settings = self.settings_service.load()
+        marker("settings loaded")
         self.catalog = WatermarkCatalog()
         self.pool = QThreadPool(self)
         self.pool.setMaxThreadCount(3)
@@ -83,8 +86,11 @@ class MainWindow(QMainWindow):
         self.preview_generation = 0
         self.batch_running = False
         self._build_ui()
+        marker("stylesheet application started")
         apply_theme(self)
+        marker("stylesheet applied")
         self._restore_settings()
+        marker("settings restored")
         self.setWindowTitle("Social Image Processor")
         self.resize(1280, 800)
         # Restored paths must not start workers while the window is still being
@@ -153,7 +159,10 @@ class MainWindow(QMainWindow):
         options.addWidget(self.quality)
         options.addStretch()
         setup_layout.addLayout(options)
+        marker("Trello panel creation started")
         self.trello_panel = TrelloPanel(parent=self)
+        widget_state("Trello panel", self.trello_panel)
+        marker("Trello panel created")
         self.trello_panel.start_worker.connect(self._start_worker)
         top = QHBoxLayout()
         top.setSpacing(10)
@@ -188,7 +197,10 @@ class MainWindow(QMainWindow):
         table_layout.addLayout(selections)
 
         self.model = ImageTableModel(self)
+        marker("image table creation started")
         self.table = QTableView()
+        widget_state("image table", self.table)
+        marker("image table created")
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -198,17 +210,30 @@ class MainWindow(QMainWindow):
         self.table.setDropIndicatorShown(True)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
-        self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(76)
+        marker("vertical header configuration started")
+        vertical_header = self.table.verticalHeader()
+        widget_state("vertical header", vertical_header)
+        vertical_header.ensurePolished()
+        marker("vertical header created/polished")
+        vertical_header.setVisible(False)
+        vertical_header.setDefaultSectionSize(76)
         self.table.setColumnWidth(ImageTableModel.ORDER, 55)
         self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 110)
         self.table.setColumnWidth(ImageTableModel.FILENAME, 230)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        marker("horizontal header configuration started")
+        horizontal_header = self.table.horizontalHeader()
+        widget_state("horizontal header", horizontal_header)
+        horizontal_header.ensurePolished()
+        marker("horizontal header created/polished")
+        horizontal_header.setStretchLastSection(True)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
         self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
         table_layout.addWidget(self.table)
+        marker("preview panel creation started")
         self.preview = PreviewPanel()
+        widget_state("preview panel", self.preview)
+        marker("preview panel created")
         split = QSplitter(Qt.Horizontal)
         split.addWidget(self.table_area)
         split.addWidget(self.preview)
@@ -216,7 +241,10 @@ class MainWindow(QMainWindow):
         outer.addWidget(split, 3)
 
         bottom = QSplitter(Qt.Horizontal)
+        marker("QTextEdit/log creation started")
         self.log = QTextEdit()
+        widget_state("QTextEdit/log", self.log)
+        marker("QTextEdit/log created")
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Processing and Trello activity will appear here.")
         self.trello_panel.activity.connect(self.log.append)
@@ -366,6 +394,7 @@ class MainWindow(QMainWindow):
 
     def _start_worker(self, worker: FunctionWorker | BatchWorker) -> None:
         """Start *worker* while retaining its runnable and signal bridge."""
+        marker(f"thumbnail/scan worker starting: {type(worker).__name__}")
         self._active_workers.add(worker)
         worker.signals.finished.connect(self._worker_finished)
         self.pool.start(worker)
@@ -408,6 +437,7 @@ class MainWindow(QMainWindow):
 
     def _scan_restored_paths(self) -> None:
         """Start any initial scans after construction and ignore stale paths."""
+        marker("restored folder scan triggered")
         watermark = self._existing_directory(self.watermark_path.text())
         input_directory = self._existing_directory(self.input_path.text())
         if self.watermark_path.text() and watermark is None:
@@ -534,6 +564,8 @@ class MainWindow(QMainWindow):
         self.model.replace_items(result.images, generation)
         for issue in result.issues:
             self.log.append(f"SOURCE SCAN ERROR {issue.path.name}: {issue.message}")
+        if result.images:
+            marker(f"thumbnail workers starting: count={len(result.images)}")
         for row, item in enumerate(result.images):
             worker = FunctionWorker(render_preview_bytes, item.path, (120, 70))
             worker.signals.result.connect(
