@@ -152,6 +152,31 @@ $env:QT_QPA_PLATFORM = "offscreen"
 pytest -q tests/test_ui.py
 ```
 
+### Temporary native Windows stylesheet diagnostic
+
+`SIP_STYLE_DIAGNOSTIC` runs the real `MainWindow` through `show()` and event
+processing, reports whether the exact invalid-point-size warning occurred, and
+then exits. Production startup and its stylesheet are unchanged when the variable
+is absent. Start the bisect from PowerShell with:
+
+```powershell
+$env:SIP_STYLE_DIAGNOSTIC = "first-half"; python -m app.main
+$env:SIP_STYLE_DIAGNOSTIC = "second-half"; python -m app.main
+```
+
+The groups, in bisect order, are `global`, `labels`, `cards`, `inputs`, `buttons`,
+`checkboxes`, `tables`, `headers`, `text_edits`, `preview`, `progress`, and
+`scrollbars_and_chrome`. Narrow a positive half by explicitly including groups:
+
+```powershell
+$env:SIP_STYLE_DIAGNOSTIC = "include:tables,headers,text_edits"; python -m app.main
+$env:SIP_STYLE_DIAGNOSTIC = "include:headers"; python -m app.main
+```
+
+`all`, `none`, and `exclude:<comma-separated-groups>` are also accepted. Send
+back each command's `[style-diagnostic]` lines plus any adjacent Qt warning line.
+Remove the variable afterward with `Remove-Item Env:SIP_STYLE_DIAGNOSTIC`.
+
 The native Windows workflow has also been manually validated for startup/relaunch,
 Browse scanning, restored settings, thumbnails, previews, watermark safety, both
 platform profiles, PNG-to-JPEG processing, and repeated runs.

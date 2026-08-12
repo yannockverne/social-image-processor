@@ -9,6 +9,10 @@ from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 
 _phase = "message handler installation"
 _enabled = False
+_invalid_point_size_warnings: list[str] = []
+_INVALID_POINT_SIZE_WARNING = (
+    "QFont::setPointSize: Point size <= 0 (-1), must be greater than 0"
+)
 
 
 def _write(message: str) -> None:
@@ -17,6 +21,11 @@ def _write(message: str) -> None:
 
 def _qt_message_handler(message_type, context, message: str) -> None:
     """Forward every Qt message and annotate it with the current startup phase."""
+    if (
+        message_type == QtMsgType.QtWarningMsg
+        and message == _INVALID_POINT_SIZE_WARNING
+    ):
+        _invalid_point_size_warnings.append(message)
     level = {
         QtMsgType.QtDebugMsg: "debug",
         QtMsgType.QtInfoMsg: "info",
@@ -33,9 +42,28 @@ def _qt_message_handler(message_type, context, message: str) -> None:
 def install_message_handler() -> None:
     """Install before QApplication construction so no startup warning is missed."""
     global _enabled
+    _invalid_point_size_warnings.clear()
     _enabled = True
     qInstallMessageHandler(_qt_message_handler)
     marker("Qt message handler installed")
+
+
+def report_style_diagnostic(mode: str, enabled_groups: set[str], all_groups) -> bool:
+    """Print the reproducible stylesheet selection and warning result."""
+    disabled_groups = set(all_groups) - enabled_groups
+    _write(f"[style-diagnostic] mode={mode!r}")
+    _write(f"[style-diagnostic] enabled={','.join(sorted(enabled_groups)) or '<none>'}")
+    _write(
+        f"[style-diagnostic] disabled={','.join(sorted(disabled_groups)) or '<none>'}"
+    )
+    occurred = bool(_invalid_point_size_warnings)
+    _write(
+        f"[style-diagnostic] invalid-point-size-warning={'YES' if occurred else 'NO'}"
+    )
+    _write(
+        f"[style-diagnostic] matching-warning-count={len(_invalid_point_size_warnings)}"
+    )
+    return occurred
 
 
 def marker(phase: str) -> None:

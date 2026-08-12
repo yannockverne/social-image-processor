@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+import re
+
 from PySide6.QtGui import QFont
 from PySide6.QtWidgets import QApplication, QWidget
 
@@ -150,6 +153,92 @@ QToolTip {{ background-color: #282e37; color: #f0f2f5; border: 1px solid #424b58
 """
 
 
+# TEMPORARY: native-Windows stylesheet bisect support.  STYLESHEET remains the
+# production source of truth; rules are only filtered when the diagnostic
+# environment variable is explicitly present.
+STYLE_DIAGNOSTIC_GROUPS = (
+    "global",
+    "labels",
+    "cards",
+    "inputs",
+    "buttons",
+    "checkboxes",
+    "tables",
+    "headers",
+    "text_edits",
+    "preview",
+    "progress",
+    "scrollbars_and_chrome",
+)
+
+_QSS_RULE = re.compile(r"(?:/\*.*?\*/\s*)?([^{}]+)\{[^{}]*\}", re.DOTALL)
+
+
+def _style_group(selector: str) -> str:
+    """Classify one existing QSS rule without changing the production QSS."""
+    if "QPushButton" in selector:
+        return "buttons"
+    if "QTableView" in selector:
+        return "tables"
+    if "QHeaderView" in selector or "QTableCornerButton" in selector:
+        return "headers"
+    if "QTextEdit" in selector:
+        return "text_edits"
+    if "QLineEdit" in selector or "QSpinBox" in selector:
+        return "inputs"
+    if "QCheckBox" in selector:
+        return "checkboxes"
+    if "QProgressBar" in selector:
+        return "progress"
+    if any(name in selector for name in ("preview", "metric")):
+        return "preview"
+    if "QFrame#card" in selector or "QFrame#footer" in selector:
+        return "cards"
+    if "QLabel" in selector:
+        return "labels"
+    if any(
+        name in selector
+        for name in ("QScrollBar", "QSplitter", "QStatusBar", "QToolTip")
+    ):
+        return "scrollbars_and_chrome"
+    return "global"
+
+
+def diagnostic_style_selection(value: str) -> set[str]:
+    """Resolve a diagnostic mode to enabled group names."""
+    all_groups = set(STYLE_DIAGNOSTIC_GROUPS)
+    normalized = value.strip().lower()
+    midpoint = len(STYLE_DIAGNOSTIC_GROUPS) // 2
+    if normalized in ("all", ""):
+        return all_groups
+    if normalized == "none":
+        return set()
+    if normalized == "first-half":
+        return set(STYLE_DIAGNOSTIC_GROUPS[:midpoint])
+    if normalized == "second-half":
+        return set(STYLE_DIAGNOSTIC_GROUPS[midpoint:])
+    operation, separator, names = normalized.partition(":")
+    if not separator or operation not in ("include", "exclude"):
+        raise ValueError(
+            "expected all, none, first-half, second-half, include:<groups>, "
+            "or exclude:<groups>"
+        )
+    requested = {name.strip() for name in names.split(",") if name.strip()}
+    unknown = requested - all_groups
+    if unknown:
+        raise ValueError(f"unknown stylesheet group(s): {', '.join(sorted(unknown))}")
+    return requested if operation == "include" else all_groups - requested
+
+
+def diagnostic_stylesheet(enabled: set[str]) -> str:
+    """Filter complete rules while retaining their original cascade order."""
+    return "\n".join(
+        match.group(0)
+        for match in _QSS_RULE.finditer(STYLESHEET)
+        if _style_group(match.group(1)) in enabled
+    )
+
+
 def configure_application_font(application: QApplication) -> None:
     """Set the base font before any widgets can inherit or polish it.
 
@@ -170,4 +259,9 @@ def configure_application_font(application: QApplication) -> None:
 
 def apply_theme(widget: QWidget) -> None:
     """Apply the application theme without changing inherited widget fonts."""
-    widget.setStyleSheet(STYLESHEET)
+    diagnostic_mode = os.environ.get("SIP_STYLE_DIAGNOSTIC")
+    if diagnostic_mode is None:
+        widget.setStyleSheet(STYLESHEET)
+        return
+    enabled = diagnostic_style_selection(diagnostic_mode)
+    widget.setStyleSheet(diagnostic_stylesheet(enabled))

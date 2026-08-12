@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import sys
 
 
@@ -10,10 +11,27 @@ def main() -> int:
     from PySide6.QtGui import QIcon
     from PySide6.QtWidgets import QApplication
 
-    from app.ui.startup_diagnostics import install_message_handler, marker, widget_state
+    from app.ui.startup_diagnostics import (
+        install_message_handler,
+        marker,
+        report_style_diagnostic,
+        widget_state,
+    )
     from app.ui.main_window import MainWindow
-    from app.ui.theme import configure_application_font
+    from app.ui.theme import (
+        STYLE_DIAGNOSTIC_GROUPS,
+        configure_application_font,
+        diagnostic_style_selection,
+    )
     from app.utils.resources import resource_path
+
+    diagnostic_mode = os.environ.get("SIP_STYLE_DIAGNOSTIC")
+    if diagnostic_mode is not None:
+        try:
+            enabled_groups = diagnostic_style_selection(diagnostic_mode)
+        except ValueError as error:
+            print(f"SIP_STYLE_DIAGNOSTIC: {error}", file=sys.stderr)
+            return 2
 
     install_message_handler()
     marker("QApplication creation started")
@@ -37,6 +55,12 @@ def main() -> int:
     marker("show() completed")
     marker("processEvents() started")
     application.processEvents()
+    if diagnostic_mode is not None:
+        report_style_diagnostic(
+            diagnostic_mode, enabled_groups, STYLE_DIAGNOSTIC_GROUPS
+        )
+        window.close()
+        return 0
     marker("processEvents() completed; entering application event loop")
     return application.exec()
 
