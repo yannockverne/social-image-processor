@@ -169,6 +169,11 @@ class MainWindow(QMainWindow):
             )
             selections.addWidget(button)
         selections.addStretch()
+        self.move_up_button = QPushButton("Move Up")
+        self.move_down_button = QPushButton("Move Down")
+        for button in (self.move_up_button, self.move_down_button):
+            button.setProperty("role", "secondary")
+            selections.addWidget(button)
         outer.addLayout(selections)
 
         self.model = ImageTableModel(self)
@@ -176,14 +181,21 @@ class MainWindow(QMainWindow):
         self.table.setModel(self.model)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table.setDragDropMode(QAbstractItemView.InternalMove)
+        self.table.setDefaultDropAction(Qt.MoveAction)
+        self.table.setDragDropOverwriteMode(False)
+        self.table.setDropIndicatorShown(True)
         self.table.setAlternatingRowColors(True)
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(76)
-        self.table.setColumnWidth(0, 110)
-        self.table.setColumnWidth(1, 230)
+        self.table.setColumnWidth(ImageTableModel.ORDER, 55)
+        self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 110)
+        self.table.setColumnWidth(ImageTableModel.FILENAME, 230)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
+        self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
+        self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
         self.preview = PreviewPanel()
         split = QSplitter(Qt.Horizontal)
         split.addWidget(self.table)
@@ -256,8 +268,18 @@ class MainWindow(QMainWindow):
             self.watermark_enabled,
             self.quality,
             self.table,
+            self.move_up_button,
+            self.move_down_button,
             self.process_button,
         ]
+
+    def _move_selected_row(self, offset: int) -> None:
+        rows = self.table.selectionModel().selectedRows()
+        if not rows:
+            return
+        new_row = self.model.move_row(rows[0].row(), offset)
+        self.table.selectRow(new_row)
+        self._refresh_selected_preview()
 
     @staticmethod
     def _row_widget(edit, button):
@@ -503,14 +525,18 @@ class MainWindow(QMainWindow):
         for row, item in enumerate(result.images):
             worker = FunctionWorker(render_preview_bytes, item.path, (120, 70))
             worker.signals.result.connect(
-                lambda data, r=row, g=generation: self._thumbnail_ready(g, r, data)
+                lambda data, r=row, g=generation, p=item.path: self._thumbnail_ready(
+                    g, r, p, data
+                )
             )
             self._start_worker(worker)
 
-    def _thumbnail_ready(self, generation: int, row: int, data: bytes) -> None:
+    def _thumbnail_ready(
+        self, generation: int, row: int, source_path: Path, data: bytes
+    ) -> None:
         pixmap = QPixmap()
         pixmap.loadFromData(data)
-        self.model.set_thumbnail(row, generation, pixmap)
+        self.model.set_thumbnail(row, generation, pixmap, source_path)
 
     def _selection_changed(
         self, selected: QItemSelection, _deselected: QItemSelection

@@ -35,3 +35,14 @@ def test_missing_output_directory_does_not_prevent_allocation(tmp_path: Path) ->
 
     assert result == output_directory / "X_SOURCE.jpg"
     assert not output_directory.exists()
+
+
+def test_manual_order_sequence_is_zero_padded_before_source_name(
+    tmp_path: Path,
+) -> None:
+    allocator = OutputNameAllocator(tmp_path)
+
+    assert (
+        allocator.allocate(Path("third.png"), ExportPlatform.INSTAGRAM, 2).name
+        == "Insta_02_third.jpg"
+    )

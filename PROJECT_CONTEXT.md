@@ -66,7 +66,7 @@ or icon and no installer technology.
 
 ## Deferred features
 
-Do not add drag/drop, crop or 4:5 conversion, resizing, watermark fallback/override,
+Do not add crop or 4:5 conversion, resizing, watermark fallback/override,
 preset/plugin frameworks, metadata policy UI, Trello card creation, direct
 Make/Buffer/social publishing, installer technology, or an actual executable
 without a separately approved task.

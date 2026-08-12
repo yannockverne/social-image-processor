@@ -11,7 +11,7 @@ pytest.importorskip(
     exc_type=ImportError,
 )
 from PIL import Image
-from PySide6.QtCore import QItemSelectionModel, Qt
+from PySide6.QtCore import QItemSelectionModel, QModelIndex, Qt
 from PySide6.QtGui import QCloseEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
@@ -357,6 +357,36 @@ def test_platform_check_state_integer_transitions(
     assert window.model.setData(index, Qt.CheckState.Unchecked.value, Qt.CheckStateRole)
     assert getattr(window.model.items[0], attribute) is False
     assert window.model.data(index, Qt.CheckStateRole) == Qt.Unchecked
+
+
+def test_move_buttons_reorder_complete_items_and_update_order(window) -> None:
+    first = ImageItem(Path("first.png"), 10, 5, 100, True, False)
+    second = ImageItem(Path("second.png"), 20, 7, 200, False, True)
+    window.model.replace_items([first, second], 1)
+    window.table.selectRow(1)
+
+    window.move_up_button.click()
+
+    assert window.model.items == [second, first]
+    assert window.model.items[0].dimensions == (20, 7)
+    assert window.model.items[0].export_to_instagram
+    assert not window.model.items[0].export_to_x
+    assert window.model.data(window.model.index(0, ImageTableModel.ORDER)) == 1
+    window.move_down_button.click()
+    assert window.model.items == [first, second]
+
+
+def test_drag_drop_reorders_model_items(window) -> None:
+    items = [
+        ImageItem(Path("a.png"), 1, 1, 1),
+        ImageItem(Path("b.png"), 2, 2, 2),
+        ImageItem(Path("c.png"), 3, 3, 3),
+    ]
+    window.model.replace_items(items, 1)
+    mime_data = window.model.mimeData([window.model.index(0, 0)])
+
+    assert window.model.dropMimeData(mime_data, Qt.MoveAction, 3, 0, QModelIndex())
+    assert window.model.items == [items[1], items[2], items[0]]
 
 
 @pytest.mark.parametrize(

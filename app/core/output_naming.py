@@ -19,13 +19,17 @@ class OutputNameAllocator:
         self._reserved: set[str] = set()
 
     def allocate(
-        self, source_path: Path, profile: ExportProfile | ExportPlatform | str
+        self,
+        source_path: Path,
+        profile: ExportProfile | ExportPlatform | str,
+        sequence_number: int | None = None,
     ) -> Path:
         """Reserve and return the first available profile-prefixed JPG path."""
         if not isinstance(profile, ExportProfile):
             profile = get_profile(profile)
 
-        base_name = f"{profile.filename_prefix}{source_path.stem}"
+        sequence = f"{sequence_number:02d}_" if sequence_number is not None else ""
+        base_name = f"{profile.filename_prefix}{sequence}{source_path.stem}"
         suffix_number: int | None = None
         while True:
             suffix = "" if suffix_number is None else f"_{suffix_number}"

@@ -56,6 +56,7 @@ class BatchProcessor:
         successful_sources = 0
         source_bytes = 0
         output_bytes = 0
+        platform_numbers = {ExportPlatform.X: 0, ExportPlatform.INSTAGRAM: 0}
 
         def emit(event: BatchEvent) -> None:
             events.append(event)
@@ -64,6 +65,10 @@ class BatchProcessor:
 
         for completed, item in enumerate(selected, start=1):
             platforms = _platforms(item)
+            sequence_numbers = {}
+            for platform in platforms:
+                platform_numbers[platform] += 1
+                sequence_numbers[platform] = platform_numbers[platform]
             watermark_path: Path | None = None
             try:
                 if self._watermark_enabled:
@@ -91,7 +96,9 @@ class BatchProcessor:
             source_succeeded = False
             for platform in platforms:
                 try:
-                    output_path = allocator.allocate(item.path, platform)
+                    output_path = allocator.allocate(
+                        item.path, platform, sequence_numbers[platform]
+                    )
                     generated = export_prepared_jpeg(
                         prepared, output_path, quality=self._jpeg_quality
                     )
