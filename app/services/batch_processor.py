@@ -97,7 +97,7 @@ class BatchProcessor:
             for platform in platforms:
                 try:
                     output_path = allocator.allocate(
-                        item.path, platform, sequence_numbers[platform]
+                        platform, sequence_numbers[platform]
                     )
                     generated = export_prepared_jpeg(
                         prepared, output_path, quality=self._jpeg_quality
