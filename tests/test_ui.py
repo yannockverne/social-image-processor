@@ -65,21 +65,34 @@ def test_theme_uses_valid_application_font_for_default_text_size(application) ->
     point_font = QFont(original_font)
     point_font.setPointSize(9)
     application.setFont(point_font)
-    widget = QWidget()
+    messages: list[str] = []
+
+    def capture_font_warnings(message_type, _context, message) -> None:
+        if message_type == QtMsgType.QtWarningMsg:
+            messages.append(message)
+
+    previous_handler = qInstallMessageHandler(capture_font_warnings)
+    widget = None
 
     try:
         configure_application_font(application)
+        widget = QWidget()
         apply_theme(widget)
         widget.ensurePolished()
+        application.processEvents()
 
         assert application.font().family() == "Segoe UI"
         assert application.font().pointSize() == 10
+        assert widget.font().family() == "Segoe UI"
         assert widget.font().pointSize() == 10
+        assert not any("QFont::setPointSize" in message for message in messages)
         global_rule = widget.styleSheet().split("QMainWindow", 1)[0]
         assert "font-size" not in global_rule
     finally:
+        qInstallMessageHandler(previous_handler)
         application.setFont(original_font)
-        widget.close()
+        if widget is not None:
+            widget.close()
 
 
 def test_theme_preserves_pixel_sized_application_font(application) -> None:
