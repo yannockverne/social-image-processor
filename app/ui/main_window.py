@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QFormLayout,
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -45,6 +46,7 @@ from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
 from app.services.settings_service import SettingsService
 from app.ui.image_table import ImageTableModel
 from app.ui.preview_panel import PreviewPanel
+from app.ui.theme import apply_theme
 from app.ui.workers import BatchWorker, FunctionWorker, render_preview_bytes
 from app.utils.formatting import format_bytes
 
@@ -73,6 +75,7 @@ class MainWindow(QMainWindow):
         self.preview_generation = 0
         self.batch_running = False
         self._build_ui()
+        apply_theme(self)
         self._restore_settings()
         self.setWindowTitle("Social Image Processor")
         self.resize(1280, 800)
@@ -83,8 +86,32 @@ class MainWindow(QMainWindow):
 
     def _build_ui(self) -> None:
         central = QWidget()
+        central.setObjectName("mainContent")
         outer = QVBoxLayout(central)
+        outer.setContentsMargins(18, 14, 18, 14)
+        outer.setSpacing(10)
+
+        identity = QVBoxLayout()
+        identity.setSpacing(1)
+        title = QLabel("SOCIAL IMAGE PROCESSOR")
+        title.setObjectName("appTitle")
+        subtitle = QLabel("Prepare once. Publish anywhere.")
+        subtitle.setObjectName("appSubtitle")
+        identity.addWidget(title)
+        identity.addWidget(subtitle)
+        outer.addLayout(identity)
+
+        setup_card = QFrame()
+        setup_card.setObjectName("card")
+        setup_layout = QVBoxLayout(setup_card)
+        setup_layout.setContentsMargins(14, 11, 14, 13)
+        setup_layout.setSpacing(8)
+        setup_title = QLabel("FOLDERS & OPTIONS")
+        setup_title.setObjectName("sectionTitle")
+        setup_layout.addWidget(setup_title)
         form = QFormLayout()
+        form.setHorizontalSpacing(14)
+        form.setVerticalSpacing(7)
         self.input_path, self.input_browse = self._path_row(
             "Select input folder", self.scan_input
         )
@@ -93,16 +120,18 @@ class MainWindow(QMainWindow):
             "Select watermark folder", self.refresh_watermarks
         )
         form.addRow(
-            "Input folder", self._row_widget(self.input_path, self.input_browse)
+            self._field_label("Input folder"),
+            self._row_widget(self.input_path, self.input_browse),
         )
         form.addRow(
-            "Output folder", self._row_widget(self.output_path, self.output_browse)
+            self._field_label("Output folder"),
+            self._row_widget(self.output_path, self.output_browse),
         )
         form.addRow(
-            "Watermark folder",
+            self._field_label("Watermark folder"),
             self._row_widget(self.watermark_path, self.watermark_browse),
         )
-        outer.addLayout(form)
+        setup_layout.addLayout(form)
 
         options = QHBoxLayout()
         self.watermark_enabled = QCheckBox("Apply watermark")
@@ -110,11 +139,13 @@ class MainWindow(QMainWindow):
         self.quality = QSpinBox()
         self.quality.setRange(70, 100)
         self.quality.setSuffix(" %")
+        self.quality.setFixedWidth(90)
         options.addWidget(self.watermark_enabled)
         options.addWidget(QLabel("JPEG quality"))
         options.addWidget(self.quality)
         options.addStretch()
-        outer.addLayout(options)
+        setup_layout.addLayout(options)
+        outer.addWidget(setup_card)
 
         selections = QHBoxLayout()
         for text, column, value in (
@@ -124,6 +155,7 @@ class MainWindow(QMainWindow):
             ("Clear all Instagram", ImageTableModel.INSTAGRAM, False),
         ):
             button = QPushButton(text)
+            button.setProperty("role", "secondary")
             button.clicked.connect(
                 lambda _=False, c=column, v=value: self.model.set_platform_all(c, v)
             )
@@ -137,6 +169,8 @@ class MainWindow(QMainWindow):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setAlternatingRowColors(True)
+        self.table.setShowGrid(False)
+        self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(76)
         self.table.setColumnWidth(0, 110)
         self.table.setColumnWidth(1, 230)
@@ -154,31 +188,52 @@ class MainWindow(QMainWindow):
         self.log.setReadOnly(True)
         self.log.setPlaceholderText("Processing messages will appear here.")
         stats_frame = QFrame()
-        stats = QFormLayout(stats_frame)
+        stats_frame.setObjectName("card")
+        stats = QVBoxLayout(stats_frame)
+        stats.setContentsMargins(12, 10, 12, 12)
+        stats.setSpacing(7)
+        stats_title = QLabel("BATCH METRICS")
+        stats_title.setObjectName("sectionTitle")
+        stats.addWidget(stats_title)
         self.stat_source, self.stat_output, self.stat_saved, self.stat_reduction = (
             QLabel("—") for _ in range(4)
         )
-        stats.addRow("Source:", self.stat_source)
-        stats.addRow("Output:", self.stat_output)
-        stats.addRow("Saved:", self.stat_saved)
-        stats.addRow("Reduction:", self.stat_reduction)
+        metric_grid = QGridLayout()
+        metric_grid.setSpacing(7)
+        for index, (label, value) in enumerate(
+            (
+                ("SOURCE", self.stat_source),
+                ("OUTPUT", self.stat_output),
+                ("SAVED", self.stat_saved),
+                ("REDUCTION", self.stat_reduction),
+            )
+        ):
+            metric_grid.addWidget(self._metric(label, value), index // 2, index % 2)
+        stats.addLayout(metric_grid)
         bottom.addWidget(self.log)
         bottom.addWidget(stats_frame)
         bottom.setSizes([900, 300])
         outer.addWidget(bottom, 1)
 
-        processing = QHBoxLayout()
+        footer = QFrame()
+        footer.setObjectName("footer")
+        processing = QHBoxLayout(footer)
+        processing.setContentsMargins(12, 9, 10, 9)
+        processing.setSpacing(12)
         self.progress_text = QLabel("Ready")
+        self.progress_text.setObjectName("statusText")
+        self.progress_text.setMinimumWidth(150)
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
         self.process_button = QPushButton("PROCESS IMAGES")
+        self.process_button.setObjectName("processButton")
         self.process_button.setMinimumHeight(38)
         self.process_button.clicked.connect(self.start_processing)
         processing.addWidget(self.progress_text)
         processing.addWidget(self.progress, 1)
         processing.addWidget(self.process_button)
-        outer.addLayout(processing)
+        outer.addWidget(footer)
         self.setCentralWidget(central)
         self.conflicting_controls = [
             self.input_path,
@@ -201,6 +256,26 @@ class MainWindow(QMainWindow):
         layout.addWidget(edit, 1)
         layout.addWidget(button)
         return widget
+
+    @staticmethod
+    def _field_label(text: str) -> QLabel:
+        label = QLabel(text)
+        label.setObjectName("fieldLabel")
+        return label
+
+    @staticmethod
+    def _metric(label_text: str, value: QLabel) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("metric")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(10, 7, 10, 8)
+        layout.setSpacing(1)
+        label = QLabel(label_text)
+        label.setObjectName("metricLabel")
+        value.setObjectName("metricValue")
+        layout.addWidget(label)
+        layout.addWidget(value)
+        return frame
 
     def _path_row(self, caption: str, changed=None):
         edit, button = QLineEdit(), QPushButton("Browse…")

@@ -8,17 +8,20 @@ from PySide6.QtWidgets import QLabel, QSizePolicy, QVBoxLayout, QWidget
 class PreviewPanel(QWidget):
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
+        self.setObjectName("previewPanel")
         self.title = QLabel("Preview")
+        self.title.setObjectName("previewTitle")
         self.image = QLabel("Select an image")
+        self.image.setObjectName("previewImage")
         self.image.setAlignment(Qt.AlignCenter)
         self.image.setMinimumSize(300, 240)
         self.image.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.image.setStyleSheet(
-            "QLabel { background: palette(base); border: 1px solid palette(mid); }"
-        )
         self.status = QLabel("")
+        self.status.setObjectName("previewStatus")
         self.status.setAlignment(Qt.AlignCenter)
         layout = QVBoxLayout(self)
+        layout.setContentsMargins(14, 14, 14, 12)
+        layout.setSpacing(10)
         layout.addWidget(self.title)
         layout.addWidget(self.image, 1)
         layout.addWidget(self.status)
