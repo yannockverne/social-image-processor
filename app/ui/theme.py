@@ -88,7 +88,10 @@ QTableView {{
     selection-color: #ffffff;
     outline: none;
 }}
-QTableView::item {{ border-bottom: 1px solid #232932; padding: 5px 8px; }}
+/* Keep item-view check indicators on the native style geometry. In particular,
+   padding this subcontrol makes the Windows style paint and hit-test a
+   checkable model item with different rectangles. */
+QTableView::item {{ border-bottom: 1px solid #232932; }}
 QTableView::item:selected {{ background-color: #244d78; border-bottom-color: #35689a; }}
 QHeaderView::section {{
     background-color: #20252c;
