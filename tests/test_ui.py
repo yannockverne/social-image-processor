@@ -108,8 +108,14 @@ def test_window_constructs_and_restores_settings(application, tmp_path: Path) ->
     assert not window.watermark_enabled.isChecked()
     assert window.minimumSizeHint().width() <= 1920
     assert window.minimumSizeHint().height() <= 1080
+    assert window.trello_panel.attach_button.parentWidget() is not window.trello_panel
     window.pool.waitForDone(5000)
     window.close()
+
+
+def test_trello_activity_reaches_shared_log(window) -> None:
+    window.trello_panel.activity.emit("Trello: X_ready.jpg uploaded.")
+    assert "Trello: X_ready.jpg uploaded." in window.log.toPlainText()
 
 
 def test_launch_with_saved_paths_defers_and_safely_restores_scans(

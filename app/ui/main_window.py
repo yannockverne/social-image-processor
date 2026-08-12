@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from app.core.watermarking import WatermarkCatalog
 from app.models.results import (
     BatchStatistics,
+    ExportStatus,
     FailedExport,
     FailedSource,
     ProgressUpdate,
@@ -47,6 +48,7 @@ from app.services.settings_service import SettingsService
 from app.ui.image_table import ImageTableModel
 from app.ui.preview_panel import PreviewPanel
 from app.ui.theme import apply_theme
+from app.ui.trello_panel import TrelloPanel
 from app.ui.workers import BatchWorker, FunctionWorker, render_preview_bytes
 from app.utils.formatting import format_bytes
 
@@ -145,7 +147,13 @@ class MainWindow(QMainWindow):
         options.addWidget(self.quality)
         options.addStretch()
         setup_layout.addLayout(options)
-        outer.addWidget(setup_card)
+        self.trello_panel = TrelloPanel(parent=self)
+        self.trello_panel.start_worker.connect(self._start_worker)
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        top.addWidget(setup_card, 2)
+        top.addWidget(self.trello_panel, 1)
+        outer.addLayout(top)
 
         selections = QHBoxLayout()
         for text, column, value in (
@@ -186,7 +194,8 @@ class MainWindow(QMainWindow):
         bottom = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setPlaceholderText("Processing messages will appear here.")
+        self.log.setPlaceholderText("Processing and Trello activity will appear here.")
+        self.trello_panel.activity.connect(self.log.append)
         stats_frame = QFrame()
         stats_frame.setObjectName("card")
         stats = QVBoxLayout(stats_frame)
@@ -230,9 +239,11 @@ class MainWindow(QMainWindow):
         self.process_button.setObjectName("processButton")
         self.process_button.setMinimumHeight(38)
         self.process_button.clicked.connect(self.start_processing)
+        self.trello_panel.attach_button.setMinimumHeight(38)
         processing.addWidget(self.progress_text)
         processing.addWidget(self.progress, 1)
         processing.addWidget(self.process_button)
+        processing.addWidget(self.trello_panel.attach_button)
         outer.addWidget(footer)
         self.setCentralWidget(central)
         self.conflicting_controls = [
@@ -579,6 +590,7 @@ class MainWindow(QMainWindow):
         self.save_settings()
         self.log.clear()
         self._set_batch_running(True)
+        self.trello_panel.set_processed_files(())
         self.progress.setRange(0, len(selected))
         self.progress.setValue(0)
         self.progress_text.setText(f"Processing image 0 / {len(selected)}")
@@ -592,9 +604,19 @@ class MainWindow(QMainWindow):
         )
         worker = BatchWorker(processor)
         worker.signals.event.connect(self._batch_event)
+        worker.signals.result.connect(self._batch_complete)
         worker.signals.error.connect(self._show_worker_error)
         worker.signals.finished.connect(lambda _worker: self._set_batch_running(False))
         self._start_worker(worker)
+
+    def _batch_complete(self, result) -> None:
+        """Expose only finalized outputs from the current run to optional Trello UI."""
+        self.trello_panel.set_processed_files(
+            export.output_path
+            for export in result.exports
+            if export.status is ExportStatus.SUCCEEDED
+            and export.output_path is not None
+        )
 
     def _batch_event(self, event) -> None:
         if isinstance(event, ProgressUpdate):

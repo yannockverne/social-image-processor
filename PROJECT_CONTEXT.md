@@ -13,6 +13,11 @@ Real Windows validation has covered startup/relaunch, Browse, restored settings,
 scanning/thumbnails/previews, exact/missing watermark behavior, X/Instagram/dual
 exports, PNG-to-JPEG batches, repeated runs, and the Windows test suite.
 
+Phase 2 Trello Milestone 2 adds explicit attachment of the current batch's successful
+outputs to a user-selected card. Trello models, HTTP operations, Windows Credential
+Manager access, and UI live in separate modules. Upload is never automatic, reports
+per-file partial failures, and saved credentials can be replaced from the panel.
+
 ## Architecture and invariants
 
 Dependency direction is UI → services → models/core. `app/core` is Qt-independent
@@ -46,6 +51,12 @@ deferred until the Qt event loop. Browse schedules one scan, cancellation schedu
 none, workers/signal bridges remain retained, stale async scan/preview results are
 ignored, and close is rejected during background work.
 
+Trello API credentials never enter application settings. On Windows they are held
+as a generic Credential Manager entry named `SocialImageProcessor/Trello`. Trello
+HTTP calls use the existing worker pool, are initiated only by the optional panel,
+and cannot gate or disable local batch processing. MainWindow passes only successful
+output paths from the completed current batch to the panel.
+
 ## Packaging boundary
 
 `python -m app.main` is the entry point and imports have no launch side effect.
@@ -56,5 +67,6 @@ or icon and no installer technology.
 ## Deferred features
 
 Do not add drag/drop, crop or 4:5 conversion, resizing, watermark fallback/override,
-preset/plugin frameworks, metadata policy UI, direct Make/Buffer/social publishing,
-installer technology, or an actual executable without a separately approved task.
+preset/plugin frameworks, metadata policy UI, Trello card creation, direct
+Make/Buffer/social publishing, installer technology, or an actual executable
+without a separately approved task.
