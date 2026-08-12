@@ -45,7 +45,7 @@ from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel
 from app.ui.main_window import MainWindow
-from app.ui.theme import apply_theme
+from app.ui.theme import apply_theme, configure_application_font
 from app.ui.workers import FunctionWorker
 
 
@@ -68,6 +68,7 @@ def test_theme_preserves_pixel_sized_application_font(application) -> None:
     widget = QWidget()
 
     try:
+        configure_application_font(application)
         apply_theme(widget)
 
         themed_font = application.font()
@@ -93,6 +94,7 @@ def test_theme_text_edit_family_preserves_inherited_pixel_size(application) -> N
     editor = QTextEdit(widget)
 
     try:
+        configure_application_font(application)
         apply_theme(widget)
         widget.ensurePolished()
         editor.ensurePolished()
@@ -104,6 +106,34 @@ def test_theme_text_edit_family_preserves_inherited_pixel_size(application) -> N
         qInstallMessageHandler(previous_handler)
         application.setFont(original_font)
         widget.close()
+
+
+def test_complete_window_polish_has_no_invalid_point_size_warning(
+    application, tmp_path: Path
+) -> None:
+    """Exercise dynamic children, QTextEdit, table, and both header paths."""
+    original_font = QFont(application.font())
+    messages: list[str] = []
+
+    def capture_font_warnings(message_type, _context, message) -> None:
+        if message_type == QtMsgType.QtWarningMsg:
+            messages.append(message)
+
+    configure_application_font(application)
+    previous_handler = qInstallMessageHandler(capture_font_warnings)
+    window = MainWindow(SettingsService(tmp_path / "settings.json"))
+    try:
+        window.ensurePolished()
+        for child in window.findChildren(QWidget):
+            child.ensurePolished()
+        window.table.horizontalHeader().ensurePolished()
+        window.table.verticalHeader().ensurePolished()
+        application.processEvents()
+        assert not any("QFont::setPointSize" in message for message in messages)
+    finally:
+        window.close()
+        qInstallMessageHandler(previous_handler)
+        application.setFont(original_font)
 
 
 def drain_window_work(application, window) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from io import BytesIO
 from pathlib import Path
+from threading import Lock
 
 from PIL import Image
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
@@ -18,20 +19,42 @@ class WorkerSignals(QObject):
     finished = Signal(object)
 
 
+_running_workers: set[FunctionWorker | BatchWorker] = set()
+_running_workers_lock = Lock()
+
+
+def _retain_running(worker: FunctionWorker | BatchWorker) -> None:
+    """Keep the Python runnable and its QObject signal source alive in run()."""
+    with _running_workers_lock:
+        _running_workers.add(worker)
+
+
+def _release_running(worker: FunctionWorker | BatchWorker) -> None:
+    with _running_workers_lock:
+        _running_workers.discard(worker)
+
+
 class FunctionWorker(QRunnable):
     def __init__(self, function, *args, **kwargs) -> None:
         super().__init__()
+        # The Python wrapper owns WorkerSignals.  Native QThreadPool auto-delete
+        # can invalidate that ownership at the end of run on some PySide builds.
+        self.setAutoDelete(False)
         self.function, self.args, self.kwargs = function, args, kwargs
         self.signals = WorkerSignals()
 
     @Slot()
     def run(self) -> None:
+        _retain_running(self)
         try:
             self.signals.result.emit(self.function(*self.args, **self.kwargs))
         except Exception as error:
             self.signals.error.emit(f"{type(error).__name__}: {error}")
         finally:
-            self.signals.finished.emit(self)
+            try:
+                self.signals.finished.emit(self)
+            finally:
+                _release_running(self)
 
 
 def render_preview_bytes(
@@ -55,15 +78,20 @@ class BatchWorker(QRunnable):
 
     def __init__(self, processor) -> None:
         super().__init__()
+        self.setAutoDelete(False)
         self.processor = processor
         self.signals = WorkerSignals()
 
     @Slot()
     def run(self) -> None:
+        _retain_running(self)
         try:
             result = self.processor.process(self.signals.event.emit)
             self.signals.result.emit(result)
         except Exception as error:
             self.signals.error.emit(f"{type(error).__name__}: {error}")
         finally:
-            self.signals.finished.emit(self)
+            try:
+                self.signals.finished.emit(self)
+            finally:
+                _release_running(self)
