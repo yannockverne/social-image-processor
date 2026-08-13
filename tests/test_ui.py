@@ -228,7 +228,7 @@ def test_window_constructs_and_restores_settings(application, tmp_path: Path) ->
     assert not window.watermark_enabled.isChecked()
     assert window.minimumSizeHint().width() <= 1920
     assert window.minimumSizeHint().height() <= 1080
-    assert window.trello_panel.attach_button.parentWidget() is not window.trello_panel
+    assert window.trello_update_enabled.text() == "Update Trello card"
     window.pool.waitForDone(5000)
     window.close()
 

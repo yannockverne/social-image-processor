@@ -121,3 +121,17 @@ def test_appdata_is_preferred_for_default_path(monkeypatch) -> None:
     assert default_settings_path() == Path(
         "C:/Users/test/AppData/Roaming/SocialImageProcessor/settings.json"
     )
+
+
+def test_trello_setting_is_backward_compatible_and_depends_on_r2(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text('{"trello_update_enabled": true}', encoding="utf-8")
+    assert not SettingsService(path).load().trello_update_enabled
+
+    service = SettingsService(path)
+    service.save(
+        ApplicationSettings(r2_upload_enabled=True, trello_update_enabled=True)
+    )
+    assert service.load().trello_update_enabled

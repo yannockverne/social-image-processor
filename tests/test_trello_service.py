@@ -5,7 +5,6 @@ from urllib.error import HTTPError, URLError
 
 import pytest
 
-from pathlib import Path
 
 from app.models.trello import TrelloCredentials
 from app.services.trello_service import TrelloError, TrelloService
@@ -62,72 +61,19 @@ def test_api_and_authentication_failures_are_readable(
         TrelloService(TrelloCredentials("key", "token")).list_boards()
 
 
-def test_successful_multiple_attachment_uploads(monkeypatch, tmp_path: Path) -> None:
-    files = [tmp_path / "X_01.jpg", tmp_path / "Insta_01.jpg"]
-    for index, path in enumerate(files):
-        path.write_bytes(f"image-{index}".encode())
+def test_card_description_read_and_single_update(monkeypatch) -> None:
     requests = []
+    responses = iter((b'{"desc":"Existing"}', b'{"id":"card-1"}'))
 
     def open_request(request, timeout):
         requests.append(request)
-        return Response(b'{"id":"attachment"}')
+        return Response(next(responses))
 
     monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
-    results = TrelloService(TrelloCredentials("key", "token")).upload_attachments(
-        "card-1", files
-    )
-
-    assert all(result.succeeded for result in results)
+    service = TrelloService(TrelloCredentials("key", "token"))
+    assert service.get_card_description("card-1") == "Existing"
+    service.update_card_description("card-1", "## URL MAKE\nhttps://pub/x.jpg\n")
     assert len(requests) == 2
-    assert all(request.method == "POST" for request in requests)
-    assert all("/cards/card-1/attachments" in request.full_url for request in requests)
-    for file, request in zip(files, requests, strict=True):
-        assert f'filename="{file.name}"'.encode() in request.data
-        assert file.read_bytes() in request.data
-
-
-def test_partial_attachment_failure_is_retained(monkeypatch, tmp_path: Path) -> None:
-    files = [tmp_path / "X_good.jpg", tmp_path / "X_bad.jpg"]
-    for path in files:
-        path.write_bytes(b"image")
-    calls = 0
-
-    def open_request(_request, timeout):
-        nonlocal calls
-        del timeout
-        calls += 1
-        if calls == 2:
-            raise HTTPError("url", 500, "failure", {}, None)
-        return Response(b'{"id":"attachment"}')
-
-    monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
-    results = TrelloService(TrelloCredentials("key", "token")).upload_attachments(
-        "card-1", files
-    )
-
-    assert [result.succeeded for result in results] == [True, False]
-    assert "API error (500)" in results[1].message
-
-
-@pytest.mark.parametrize(
-    ("failure", "message"),
-    (
-        (HTTPError("url", 403, "Forbidden", {}, None), "authentication failed"),
-        (URLError("offline"), "unavailable"),
-        (HTTPError("url", 429, "Rate limited", {}, None), "API error (429)"),
-    ),
-)
-def test_attachment_auth_network_and_api_failures(
-    monkeypatch, tmp_path: Path, failure: Exception, message: str
-) -> None:
-    path = tmp_path / "X_image.jpg"
-    path.write_bytes(b"image")
-    monkeypatch.setattr(
-        "app.services.trello_service.urlopen",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(failure),
-    )
-    result = TrelloService(TrelloCredentials("key", "token")).upload_attachments(
-        "card", [path]
-    )[0]
-    assert not result.succeeded
-    assert message in result.message
+    assert requests[1].method == "PUT"
+    assert "/cards/card-1?" in requests[1].full_url
+    assert "desc=%23%23+URL+MAKE" in requests[1].full_url

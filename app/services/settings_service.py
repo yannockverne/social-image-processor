@@ -66,6 +66,9 @@ class SettingsService:
             "r2_upload_enabled": bool(settings.r2_upload_enabled),
             "r2_worker_url": settings.r2_worker_url.strip(),
             "r2_remote_prefix": settings.r2_remote_prefix.strip(),
+            "trello_update_enabled": bool(
+                settings.trello_update_enabled and settings.r2_upload_enabled
+            ),
         }
 
         temporary_path: Path | None = None
@@ -101,6 +104,10 @@ class SettingsService:
             r2_upload_enabled=cls._boolean(payload.get("r2_upload_enabled"), False),
             r2_worker_url=cls._string(payload.get("r2_worker_url")),
             r2_remote_prefix=cls._string(payload.get("r2_remote_prefix")),
+            trello_update_enabled=cls._boolean(
+                payload.get("trello_update_enabled"), False
+            )
+            and cls._boolean(payload.get("r2_upload_enabled"), False),
         )
 
     @staticmethod

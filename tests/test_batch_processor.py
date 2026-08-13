@@ -247,3 +247,101 @@ def test_signed_negative_savings_and_final_statistics_event(tmp_path: Path) -> N
     assert result.reduction_percentage < 0
     assert result.events[-1] == result.statistics
     assert isinstance(result.events[-1], BatchStatistics)
+
+
+class FakeR2:
+    def __init__(self, outcomes):
+        self.outcomes = iter(outcomes)
+
+    def object_key(self, path):
+        return path.name
+
+    def upload(self, path):
+        from app.models.results import R2UploadResult
+
+        value = next(self.outcomes)
+        return R2UploadResult(path, path.name, value is not None, value)
+
+
+class FakeTrello:
+    def __init__(self, description="Notes"):
+        self.description = description
+        self.updates = []
+
+    def get_card_description(self, card_id):
+        assert card_id == "card"
+        return self.description
+
+    def update_card_description(self, card_id, description):
+        self.updates.append((card_id, description))
+
+
+def test_r2_and_trello_sync_once_in_export_order(tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 4)).save(source)
+    trello = FakeTrello()
+    result = _run(
+        [_source(source, x=True, instagram=True)],
+        tmp_path / "out",
+        r2_upload_service=FakeR2(["https://pub/X_01.jpg", "https://pub/Insta_01.jpg"]),
+        trello_service=trello,
+        trello_card_id="card",
+    )
+    assert result.trello_urls_updated == 2
+    assert len(trello.updates) == 1
+    assert trello.updates[0][1].endswith(
+        "## URL MAKE\nhttps://pub/X_01.jpg\nhttps://pub/Insta_01.jpg\n"
+    )
+
+
+def test_partial_upload_only_syncs_usable_urls_and_keeps_local_exports(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 4)).save(source)
+    trello = FakeTrello("## URL MAKE\nold\n")
+    result = _run(
+        [_source(source, x=True, instagram=True)],
+        tmp_path / "out",
+        r2_upload_service=FakeR2([None, "https://pub/Insta_01.jpg"]),
+        trello_service=trello,
+        trello_card_id="card",
+    )
+    assert result.statistics.successful_output_count == 2
+    assert all(export.output_path.exists() for export in result.exports)
+    assert len(trello.updates) == 1
+    assert "https://pub/Insta_01.jpg" in trello.updates[0][1]
+
+
+def test_zero_usable_urls_leaves_trello_untouched(tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 4)).save(source)
+    trello = FakeTrello("## URL MAKE\nold\n")
+    result = _run(
+        [_source(source, x=True)],
+        tmp_path / "out",
+        r2_upload_service=FakeR2([None]),
+        trello_service=trello,
+        trello_card_id="card",
+    )
+    assert result.statistics.successful_output_count == 1
+    assert trello.updates == []
+
+
+def test_trello_failure_does_not_invalidate_exports_or_uploads(tmp_path: Path) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 4)).save(source)
+    trello = FakeTrello()
+    trello.update_card_description = lambda *_args: (_ for _ in ()).throw(
+        RuntimeError("offline")
+    )
+    result = _run(
+        [_source(source, x=True)],
+        tmp_path / "out",
+        r2_upload_service=FakeR2(["https://pub/X_01.jpg"]),
+        trello_service=trello,
+        trello_card_id="card",
+    )
+    assert result.statistics.successful_output_count == 1
+    assert result.uploads[0].success
+    assert "offline" in result.trello_error

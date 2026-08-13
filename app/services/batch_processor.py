@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from app.core.image_processing import export_prepared_jpeg, prepare_jpeg
 from app.core.output_naming import OutputNameAllocator
@@ -27,6 +28,7 @@ from app.models.results import (
 )
 from app.models.watermark import WatermarkStatus
 from app.services.r2_upload_service import R2UploadService
+from app.services.url_make import replace_url_make_section
 
 EventCallback = Callable[[BatchEvent], None]
 
@@ -45,6 +47,8 @@ class BatchProcessor:
         jpeg_quality: int = 92,
         background: str | tuple[int, int, int] = "#000000",
         r2_upload_service: R2UploadService | None = None,
+        trello_service=None,
+        trello_card_id: str | None = None,
     ) -> None:
         self._sources = tuple(sources)
         self._output_directory = Path(output_directory)
@@ -54,6 +58,8 @@ class BatchProcessor:
         self._jpeg_quality = jpeg_quality
         self._background = background
         self._r2_upload_service = r2_upload_service
+        self._trello_service = trello_service
+        self._trello_card_id = trello_card_id
 
     def process(self, on_event: EventCallback | None = None) -> BatchResult:
         """Run the captured batch and return all outcomes and accounting data."""
@@ -157,7 +163,30 @@ class BatchProcessor:
             output_bytes,
         )
         emit(statistics)
-        return BatchResult(tuple(exports), tuple(events), statistics, tuple(uploads))
+        trello_urls_updated = 0
+        trello_error = ""
+        urls = [_usable_public_url(upload) for upload in uploads]
+        urls = [url for url in urls if url is not None]
+        if self._trello_service is not None and self._trello_card_id and urls:
+            try:
+                description = self._trello_service.get_card_description(
+                    self._trello_card_id
+                )
+                self._trello_service.update_card_description(
+                    self._trello_card_id,
+                    replace_url_make_section(description, urls),
+                )
+                trello_urls_updated = len(urls)
+            except Exception as error:
+                trello_error = f"{type(error).__name__}: {error}"
+        return BatchResult(
+            tuple(exports),
+            tuple(events),
+            statistics,
+            tuple(uploads),
+            trello_urls_updated,
+            trello_error,
+        )
 
 
 def _platforms(item: ImageItem) -> tuple[ExportPlatform, ...]:
@@ -167,3 +196,13 @@ def _platforms(item: ImageItem) -> tuple[ExportPlatform, ...]:
     if item.export_to_instagram:
         platforms.append(ExportPlatform.INSTAGRAM)
     return tuple(platforms)
+
+
+def _usable_public_url(upload: R2UploadResult) -> str | None:
+    if not upload.success or not isinstance(upload.public_url, str):
+        return None
+    value = upload.public_url.strip()
+    parsed = urlsplit(value)
+    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+        return None
+    return value

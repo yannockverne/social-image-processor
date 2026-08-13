@@ -26,3 +26,4 @@ class ApplicationSettings:
     r2_upload_enabled: bool = False
     r2_worker_url: str = ""
     r2_remote_prefix: str = ""
+    trello_update_enabled: bool = False
