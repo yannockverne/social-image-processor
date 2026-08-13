@@ -30,10 +30,32 @@ class ExportResult:
 
 
 @dataclass(frozen=True, slots=True)
+class R2UploadResult:
+    """Independent upload outcome, suitable for later Trello integration."""
+
+    local_path: Path
+    object_key: str
+    success: bool
+    public_url: str | None = None
+    error_message: str = ""
+
+
+@dataclass(frozen=True, slots=True)
 class SuccessfulOutput:
     """Event emitted after one platform file is finalized."""
 
     result: ExportResult
+
+
+@dataclass(frozen=True, slots=True)
+class R2UploadStarted:
+    local_path: Path
+    object_key: str
+
+
+@dataclass(frozen=True, slots=True)
+class R2UploadFinished:
+    result: R2UploadResult
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +117,8 @@ BatchEvent = (
     | FailedExport
     | ProgressUpdate
     | BatchStatistics
+    | R2UploadStarted
+    | R2UploadFinished
 )
 
 
@@ -105,6 +129,7 @@ class BatchResult:
     exports: tuple[ExportResult, ...] = field(default_factory=tuple)
     events: tuple[BatchEvent, ...] = field(default_factory=tuple)
     statistics: BatchStatistics = field(default_factory=BatchStatistics)
+    uploads: tuple[R2UploadResult, ...] = field(default_factory=tuple)
 
     @property
     def processed_source_size_bytes(self) -> int:
