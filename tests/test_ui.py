@@ -407,15 +407,18 @@ def test_repeated_same_path_requests_in_one_event_turn_create_one_worker(
 
 
 def test_stale_watermark_scan_result_is_ignored(window) -> None:
-    current = WatermarkCatalog({(2, 2): [Path("current.png")]})
-    stale = WatermarkCatalog({(3, 3): [Path("stale.png")]})
+    current = WatermarkCatalog([Path("current.png")])
+    stale = WatermarkCatalog([Path("stale.png")])
+    window.settings = ApplicationSettings(selected_watermark="current.png")
     window.watermark_generation = 2
 
     window._watermarks_ready(2, WatermarkScanResult(current))
     window._watermarks_ready(1, WatermarkScanResult(stale))
 
-    assert window.catalog.match((2, 2)).exact_path == Path("current.png")
-    assert window.catalog.match((3, 3)).exact_path is None
+    assert window.catalog.paths == (Path("current.png"),)
+    assert window.catalog.find("current.png") == Path("current.png")
+    assert window.catalog.find("stale.png") is None
+    assert window.watermark_selector.currentData() == "current.png"
 
 
 def test_worker_and_signal_bridge_are_retained_until_finished(
