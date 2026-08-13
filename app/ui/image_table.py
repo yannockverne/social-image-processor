@@ -282,16 +282,20 @@ class PlatformCheckDelegate(QStyledItemDelegate):
         group_width = indicator_size.width() + (
             self.GROUP_SPACING + warning_width if warning else 0
         )
-        left = option.rect.center().x() - group_width // 2
+        # Center from widths rather than QRect.center(): QRect uses inclusive right
+        # and bottom edges, so mixing its center with half-width arithmetic can
+        # introduce an avoidable extra pixel of bias for odd-sized cells.
+        left = option.rect.left() + (option.rect.width() - group_width) // 2
+        top = option.rect.top() + (option.rect.height() - indicator_size.height()) // 2
         indicator = QRect(
-            QPoint(left, option.rect.center().y() - indicator_size.height() // 2),
+            QPoint(left, top),
             indicator_size,
         )
         warning_rect = QRect()
         if warning:
             warning_rect = QRect(
                 left + indicator_size.width() + self.GROUP_SPACING,
-                option.rect.center().y() - self.WARNING_SIZE // 2,
+                option.rect.top() + (option.rect.height() - self.WARNING_SIZE) // 2,
                 self.WARNING_SIZE,
                 self.WARNING_SIZE,
             )
@@ -321,6 +325,10 @@ class PlatformCheckDelegate(QStyledItemDelegate):
             icon.paint(painter, warning_rect)
 
     def editorEvent(self, event, model, option, index) -> bool:
+        # This is deliberately the exact rectangle used by paint().  In
+        # particular, do not ask the style for a second indicator rectangle:
+        # native styles may place that rectangle as though the unmodified item
+        # option were being painted, which diverges from our centered control.
         indicator_rect, _ = self.control_rects(option, index)
         event_position = event.position()
         event_position = (
@@ -328,15 +336,9 @@ class PlatformCheckDelegate(QStyledItemDelegate):
             if hasattr(event_position, "toPoint")
             else event_position
         )
-        # Keep accepting the style's original hit area as well as the newly centered
-        # one. This retains the Windows native delegate interaction workaround.
-        native_rect = self._style(option).subElementRect(
-            QStyle.SE_ItemViewItemCheckIndicator, option, option.widget
-        )
         if event.type() in (QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
-            if event.button() == Qt.LeftButton and (
-                indicator_rect.contains(event_position)
-                or native_rect.contains(event_position)
+            if event.button() == Qt.LeftButton and indicator_rect.contains(
+                event_position
             ):
                 if event.type() == QEvent.MouseButtonDblClick:
                     return True
@@ -348,9 +350,7 @@ class PlatformCheckDelegate(QStyledItemDelegate):
                 return model.setData(index, new_state, Qt.CheckStateRole)
             return False
         if event.type() == QEvent.MouseButtonPress:
-            return indicator_rect.contains(event_position) or native_rect.contains(
-                event_position
-            )
+            return indicator_rect.contains(event_position)
         return super().editorEvent(event, model, option, index)
 
     def helpEvent(self, event, view, option, index) -> bool:
