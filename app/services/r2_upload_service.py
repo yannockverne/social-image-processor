@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path, PurePosixPath
 from typing import Protocol
 from urllib.parse import quote, urlsplit, urlunsplit
@@ -16,7 +17,6 @@ class HTTPResponse(Protocol):
     def __enter__(self): ...
     def __exit__(self, *args): ...
     def read(self) -> bytes: ...
-    def geturl(self) -> str: ...
 
 
 class R2UploadService:
@@ -67,14 +67,27 @@ class R2UploadService:
                 target,
                 data=path.read_bytes(),
                 method="PUT",
-                headers={"Content-Type": "image/jpeg"},
+                headers={
+                    "Content-Type": "image/jpeg",
+                    "User-Agent": "SocialImageProcessor/1.0",
+                },
             )
             with self._opener(request, timeout=self._timeout) as response:
-                response.read()
+                response_body = response.read()
                 status = response.status
                 if not 200 <= status < 300:
                     raise RuntimeError(f"HTTP {status}")
-                public_url = response.geturl() or target
+                try:
+                    payload = json.loads(response_body)
+                except (UnicodeDecodeError, json.JSONDecodeError) as error:
+                    raise RuntimeError("Worker returned invalid JSON") from error
+                public_url = (
+                    payload.get("publicUrl") if isinstance(payload, dict) else None
+                )
+                if not isinstance(public_url, str) or not public_url.strip():
+                    raise RuntimeError(
+                        "Worker response did not include a usable publicUrl"
+                    )
             return R2UploadResult(path, key, True, public_url)
         except Exception as error:
             return R2UploadResult(
