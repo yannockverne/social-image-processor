@@ -130,6 +130,8 @@ class BatchResult:
     events: tuple[BatchEvent, ...] = field(default_factory=tuple)
     statistics: BatchStatistics = field(default_factory=BatchStatistics)
     uploads: tuple[R2UploadResult, ...] = field(default_factory=tuple)
+    trello_urls_updated: int = 0
+    trello_error: str = ""
 
     @property
     def processed_source_size_bytes(self) -> int:
