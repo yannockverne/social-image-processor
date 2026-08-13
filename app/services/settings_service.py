@@ -63,6 +63,12 @@ class SettingsService:
             "watermark_enabled": bool(settings.watermark_enabled),
             "background_color": self._color(settings.background_color),
             "selected_watermark": settings.selected_watermark,
+            "r2_upload_enabled": bool(settings.r2_upload_enabled),
+            "r2_worker_url": settings.r2_worker_url.strip(),
+            "r2_remote_prefix": settings.r2_remote_prefix.strip(),
+            "trello_update_enabled": bool(
+                settings.trello_update_enabled and settings.r2_upload_enabled
+            ),
         }
 
         temporary_path: Path | None = None
@@ -95,7 +101,18 @@ class SettingsService:
             selected_watermark=cls._selected_watermark(
                 payload.get("selected_watermark")
             ),
+            r2_upload_enabled=cls._boolean(payload.get("r2_upload_enabled"), False),
+            r2_worker_url=cls._string(payload.get("r2_worker_url")),
+            r2_remote_prefix=cls._string(payload.get("r2_remote_prefix")),
+            trello_update_enabled=cls._boolean(
+                payload.get("trello_update_enabled"), False
+            )
+            and cls._boolean(payload.get("r2_upload_enabled"), False),
         )
+
+    @staticmethod
+    def _string(value: Any) -> str:
+        return value.strip() if isinstance(value, str) and "\x00" not in value else ""
 
     @staticmethod
     def _selected_watermark(value: Any) -> str | None:

@@ -39,6 +39,8 @@ from app.models.results import (
     FailedExport,
     FailedSource,
     ProgressUpdate,
+    R2UploadFinished,
+    R2UploadStarted,
     SkippedSource,
     SuccessfulOutput,
 )
@@ -47,6 +49,7 @@ from app.models.watermark import WatermarkStatus
 from app.services.batch_processor import BatchProcessor
 from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
 from app.services.settings_service import SettingsService
+from app.services.r2_upload_service import R2UploadService
 from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.preview_panel import PreviewPanel
 from app.ui.theme import apply_theme
@@ -159,6 +162,17 @@ class MainWindow(QMainWindow):
         options.addWidget(self.quality)
         options.addStretch()
         setup_layout.addLayout(options)
+        r2_options = QHBoxLayout()
+        self.r2_upload_enabled = QCheckBox("Upload exports to R2")
+        self.trello_update_enabled = QCheckBox("Update Trello card")
+        self.r2_worker_url = QLineEdit()
+        self.r2_worker_url.setPlaceholderText("https://worker.example.com/upload")
+        self.r2_worker_url.setClearButtonEnabled(True)
+        r2_options.addWidget(self.r2_upload_enabled)
+        r2_options.addWidget(QLabel("Worker URL"))
+        r2_options.addWidget(self.r2_worker_url, 1)
+        setup_layout.addLayout(r2_options)
+        setup_layout.addWidget(self.trello_update_enabled)
         self.trello_panel = TrelloPanel(parent=self)
         self.trello_panel.start_worker.connect(self._start_worker)
         top = QHBoxLayout()
@@ -278,11 +292,9 @@ class MainWindow(QMainWindow):
         self.process_button.setObjectName("processButton")
         self.process_button.setMinimumHeight(38)
         self.process_button.clicked.connect(self.start_processing)
-        self.trello_panel.attach_button.setMinimumHeight(38)
         processing.addWidget(self.progress_text)
         processing.addWidget(self.progress, 1)
         processing.addWidget(self.process_button)
-        processing.addWidget(self.trello_panel.attach_button)
         outer.addWidget(footer)
         self.setCentralWidget(central)
         self.conflicting_controls = [
@@ -295,6 +307,9 @@ class MainWindow(QMainWindow):
             self.watermark_enabled,
             self.watermark_selector,
             self.quality,
+            self.r2_upload_enabled,
+            self.r2_worker_url,
+            self.trello_update_enabled,
             self.table,
             self.move_up_button,
             self.move_down_button,
@@ -396,6 +411,9 @@ class MainWindow(QMainWindow):
             self.watermark_path,
             self.quality,
             self.watermark_enabled,
+            self.r2_upload_enabled,
+            self.r2_worker_url,
+            self.trello_update_enabled,
         )
         blockers = [QSignalBlocker(control) for control in controls]
         try:
@@ -407,10 +425,26 @@ class MainWindow(QMainWindow):
                 edit.setText(str(path) if path else "")
             self.quality.setValue(self.settings.jpeg_quality)
             self.watermark_enabled.setChecked(self.settings.watermark_enabled)
+            self.r2_upload_enabled.setChecked(self.settings.r2_upload_enabled)
+            self.r2_worker_url.setText(self.settings.r2_worker_url)
+            self.trello_update_enabled.setChecked(
+                self.settings.trello_update_enabled and self.settings.r2_upload_enabled
+            )
             self.watermark_selector.addItem("No watermark selected", None)
         finally:
             del blockers
         self.quality.valueChanged.connect(self.save_settings)
+        self.r2_upload_enabled.toggled.connect(self._r2_toggled)
+        self.trello_update_enabled.toggled.connect(self.save_settings)
+        self.r2_worker_url.editingFinished.connect(self.save_settings)
+        self._r2_toggled(self.r2_upload_enabled.isChecked())
+
+    def _r2_toggled(self, enabled: bool) -> None:
+        if not enabled:
+            self.trello_update_enabled.setChecked(False)
+        self.trello_update_enabled.setEnabled(enabled and not self.batch_running)
+        self.r2_worker_url.setEnabled(enabled and not self.batch_running)
+        self.save_settings()
 
     @staticmethod
     def _existing_directory(text: str) -> Path | None:
@@ -479,6 +513,11 @@ class MainWindow(QMainWindow):
             self.watermark_enabled.isChecked(),
             self.settings.background_color,
             self.watermark_selector.currentData(),
+            self.r2_upload_enabled.isChecked(),
+            self.r2_worker_url.text().strip(),
+            self.settings.r2_remote_prefix,
+            self.trello_update_enabled.isChecked()
+            and self.r2_upload_enabled.isChecked(),
         )
         try:
             self.settings_service.save(self.settings)
@@ -687,10 +726,28 @@ class MainWindow(QMainWindow):
                 "Watermarking is enabled. Select an available PNG watermark design."
             )
             return
+        r2_service = None
+        if self.r2_upload_enabled.isChecked():
+            r2_service = R2UploadService(
+                self.r2_worker_url.text(),
+                remote_prefix=self.settings.r2_remote_prefix,
+            )
+            if r2_service.validation_error:
+                self._validation_error(r2_service.validation_error)
+                return
+        if self.trello_update_enabled.isChecked():
+            if not self.r2_upload_enabled.isChecked():
+                self._validation_error("Enable R2 upload before updating Trello.")
+                return
+            if self.trello_panel.service is None:
+                self._validation_error("Connect to Trello before processing.")
+                return
+            if not self.trello_panel.card.currentData():
+                self._validation_error("Select a Trello card before processing.")
+                return
         self.save_settings()
         self.log.clear()
         self._set_batch_running(True)
-        self.trello_panel.set_processed_files(())
         self.progress.setRange(0, len(selected))
         self.progress.setValue(0)
         self.progress_text.setText(f"Processing image 0 / {len(selected)}")
@@ -702,6 +759,17 @@ class MainWindow(QMainWindow):
             selected_watermark=self.watermark_selector.currentData(),
             jpeg_quality=self.quality.value(),
             background=self.settings.background_color,
+            r2_upload_service=r2_service,
+            trello_service=(
+                self.trello_panel.service
+                if self.trello_update_enabled.isChecked()
+                else None
+            ),
+            trello_card_id=(
+                self.trello_panel.card.currentData()
+                if self.trello_update_enabled.isChecked()
+                else None
+            ),
         )
         worker = BatchWorker(processor)
         worker.signals.event.connect(self._batch_event)
@@ -711,13 +779,24 @@ class MainWindow(QMainWindow):
         self._start_worker(worker)
 
     def _batch_complete(self, result) -> None:
-        """Expose only finalized outputs from the current run to optional Trello UI."""
-        self.trello_panel.set_processed_files(
-            export.output_path
-            for export in result.exports
-            if export.status is ExportStatus.SUCCEEDED
-            and export.output_path is not None
-        )
+        """Report the final local, R2, and Trello outcomes once per batch."""
+        successful = sum(e.status is ExportStatus.SUCCEEDED for e in result.exports)
+        self.log.append(f"[DONE] Local exports: {successful}/{len(result.exports)}")
+        if self.r2_upload_enabled.isChecked():
+            uploaded = sum(upload.success for upload in result.uploads)
+            self.log.append(f"[R2] Uploads: {uploaded}/{len(result.uploads)}")
+        else:
+            self.log.append("[R2] Disabled")
+        if not self.trello_update_enabled.isChecked():
+            self.log.append("[TRELLO] Disabled")
+        elif result.trello_error:
+            self.log.append(f"[TRELLO] URL MAKE update failed: {result.trello_error}")
+        elif result.trello_urls_updated:
+            self.log.append(
+                f"[TRELLO] URL MAKE updated with {result.trello_urls_updated} URLs"
+            )
+        else:
+            self.log.append("[TRELLO] No usable R2 URLs; URL MAKE unchanged")
 
     def _batch_event(self, event) -> None:
         if isinstance(event, ProgressUpdate):
@@ -735,8 +814,18 @@ class MainWindow(QMainWindow):
                 0,
             )
             self.log.append(
-                f"{event.result.source_path.name}\n→ {event.result.output_path.name}\n{format_bytes(source_size)} → {format_bytes(event.result.output_size_bytes)}\n"
+                f"[EXPORT] {event.result.output_path.name}\n{event.result.source_path.name}\n{format_bytes(source_size)} → {format_bytes(event.result.output_size_bytes)}\n"
             )
+        elif isinstance(event, R2UploadStarted):
+            self.log.append(f"[R2] Uploading {event.local_path.name}...")
+        elif isinstance(event, R2UploadFinished):
+            if event.result.success:
+                self.log.append(f"[R2] Uploaded {event.result.local_path.name}\n")
+            else:
+                self.log.append(
+                    f"[R2] Upload failed for {event.result.local_path.name}: "
+                    f"{event.result.error_message}\n"
+                )
         elif isinstance(event, SkippedSource):
             self.log.append(f"SKIPPED {event.source_path.name}\n{event.message}\n")
         elif isinstance(event, FailedSource):
@@ -757,6 +846,7 @@ class MainWindow(QMainWindow):
             control.setEnabled(not running)
         if not running:
             self.progress_text.setText("Complete")
+            self._r2_toggled(self.r2_upload_enabled.isChecked())
 
     def _validation_error(self, message: str) -> None:
         QMessageBox.warning(self, "Cannot process images", message)

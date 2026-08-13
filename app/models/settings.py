@@ -23,3 +23,7 @@ class ApplicationSettings:
     watermark_enabled: bool = True
     background_color: str = DEFAULT_BACKGROUND_COLOR
     selected_watermark: str | None = None
+    r2_upload_enabled: bool = False
+    r2_worker_url: str = ""
+    r2_remote_prefix: str = ""
+    trello_update_enabled: bool = False
