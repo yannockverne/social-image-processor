@@ -145,7 +145,7 @@ def test_missing_or_ambiguous_watermark_skips_complete_source(
     result = _run(
         [_source(source, x=True, instagram=True)],
         tmp_path / "out",
-        WatermarkCatalog({(8, 4): paths}),
+        WatermarkCatalog(paths),
         watermark_enabled=True,
     )
 
