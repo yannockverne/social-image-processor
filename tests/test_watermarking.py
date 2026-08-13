@@ -1,35 +1,37 @@
 from pathlib import Path
 
-from app.core.watermarking import WatermarkCatalog
+from app.core.watermarking import (
+    WATERMARK_MARGIN_RATIO,
+    WATERMARK_WIDTH_RATIO,
+    WatermarkCatalog,
+    watermark_geometry,
+)
 from app.models.watermark import WatermarkStatus
 
 
-def test_catalog_classifies_exact_missing_and_ambiguous_matches() -> None:
-    exact = Path("watermark_exact.png")
-    duplicate_a = Path("a.png")
-    duplicate_b = Path("B.png")
-    catalog = WatermarkCatalog(
-        {(3440, 1440): [exact], (4000, 5000): [duplicate_b, duplicate_a]}
+def test_catalog_orders_and_selects_multiple_designs() -> None:
+    catalog = WatermarkCatalog([Path("Zulu.png"), Path("alpha.png")])
+    assert [path.name for path in catalog.paths] == ["alpha.png", "Zulu.png"]
+    assert catalog.match((4000, 5000), "Zulu.png").status is WatermarkStatus.EXACT
+    assert catalog.match((4000, 5000), "alpha.png").exact_path == Path("alpha.png")
+
+
+def test_missing_selection_is_unavailable() -> None:
+    catalog = WatermarkCatalog([Path("Origin.png")])
+    assert catalog.match((100, 100), "Gone.png").status is WatermarkStatus.MISSING
+
+
+def test_landscape_geometry_is_proportional_and_bottom_right() -> None:
+    size, position = watermark_geometry((4000, 2000), (1000, 400))
+    assert size == (round(4000 * WATERMARK_WIDTH_RATIO), 144)
+    assert position == (
+        4000 - size[0] - round(4000 * WATERMARK_MARGIN_RATIO),
+        2000 - size[1] - round(2000 * WATERMARK_MARGIN_RATIO),
     )
 
-    exact_match = catalog.match((3440, 1440))
-    assert exact_match.status is WatermarkStatus.EXACT
-    assert exact_match.exact_path == exact
 
-    missing_match = catalog.match((1440, 3440))
-    assert missing_match.status is WatermarkStatus.MISSING
-    assert missing_match.paths == ()
-
-    ambiguous_match = catalog.match((4000, 5000))
-    assert ambiguous_match.status is WatermarkStatus.AMBIGUOUS
-    assert ambiguous_match.paths == (duplicate_a, duplicate_b)
-    assert ambiguous_match.exact_path is None
-
-
-def test_entries_returns_a_copy() -> None:
-    catalog = WatermarkCatalog({(1, 2): [Path("watermark.png")]})
-    snapshot = catalog.entries
-
-    snapshot[(3, 4)] = (Path("other.png"),)
-
-    assert catalog.match((3, 4)).status is WatermarkStatus.MISSING
+def test_portrait_geometry_preserves_aspect_ratio_and_margins() -> None:
+    size, position = watermark_geometry((3000, 4000), (500, 200))
+    assert size[0] / size[1] == 2.5
+    assert position[0] + size[0] < 3000
+    assert position[1] + size[1] < 4000

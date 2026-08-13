@@ -22,3 +22,4 @@ class ApplicationSettings:
     jpeg_quality: int = DEFAULT_JPEG_QUALITY
     watermark_enabled: bool = True
     background_color: str = DEFAULT_BACKGROUND_COLOR
+    selected_watermark: str | None = None

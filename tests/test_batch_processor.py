@@ -103,11 +103,13 @@ def test_disabled_watermark_exports_without_catalog_match(tmp_path: Path) -> Non
     assert result.statistics.successful_output_count == 1
 
 
-def test_exact_watermark_is_composited_and_inputs_are_unchanged(tmp_path: Path) -> None:
+def test_selected_watermark_is_composited_and_inputs_are_unchanged(
+    tmp_path: Path,
+) -> None:
     source = tmp_path / "source.png"
     watermark = tmp_path / "watermark.png"
-    Image.new("RGB", (8, 4), "red").save(source)
-    Image.new("RGBA", (8, 4), (0, 0, 255, 255)).save(watermark)
+    Image.new("RGB", (800, 400), "red").save(source)
+    Image.new("RGBA", (80, 40), (0, 0, 255, 255)).save(watermark)
     before = [
         hashlib.sha256(path.read_bytes()).digest() for path in (source, watermark)
     ]
@@ -115,12 +117,13 @@ def test_exact_watermark_is_composited_and_inputs_are_unchanged(tmp_path: Path) 
     result = _run(
         [_source(source, x=True)],
         tmp_path / "out",
-        WatermarkCatalog({(8, 4): [watermark]}),
+        WatermarkCatalog([watermark]),
         watermark_enabled=True,
+        selected_watermark=watermark.name,
     )
 
     with Image.open(result.exports[0].output_path) as output:
-        red, _green, blue = output.getpixel((0, 0))
+        red, _green, blue = output.getpixel((750, 380))
         assert blue > red
     assert before == [
         hashlib.sha256(path.read_bytes()).digest() for path in (source, watermark)
@@ -142,7 +145,7 @@ def test_missing_or_ambiguous_watermark_skips_complete_source(
     result = _run(
         [_source(source, x=True, instagram=True)],
         tmp_path / "out",
-        WatermarkCatalog({(8, 4): paths}),
+        WatermarkCatalog(paths),
         watermark_enabled=True,
     )
 

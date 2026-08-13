@@ -24,6 +24,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         jpeg_quality=88,
         watermark_enabled=False,
         background_color="#12abEF",
+        selected_watermark="Origin.png",
     )
 
     service.save(expected)
@@ -35,6 +36,7 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         jpeg_quality=88,
         watermark_enabled=False,
         background_color="#12ABEF",
+        selected_watermark="Origin.png",
     )
     assert json.loads(path.read_text(encoding="utf-8"))["jpeg_quality"] == 88
 

@@ -43,7 +43,7 @@ from app.models.settings import ApplicationSettings
 from app.services.settings_service import SettingsService
 from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
-from app.ui.image_table import ImageTableModel
+from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.main_window import MainWindow
 from app.ui.theme import apply_theme, configure_application_font
 from app.ui.workers import FunctionWorker
@@ -407,15 +407,18 @@ def test_repeated_same_path_requests_in_one_event_turn_create_one_worker(
 
 
 def test_stale_watermark_scan_result_is_ignored(window) -> None:
-    current = WatermarkCatalog({(2, 2): [Path("current.png")]})
-    stale = WatermarkCatalog({(3, 3): [Path("stale.png")]})
+    current = WatermarkCatalog([Path("current.png")])
+    stale = WatermarkCatalog([Path("stale.png")])
+    window.settings = ApplicationSettings(selected_watermark="current.png")
     window.watermark_generation = 2
 
     window._watermarks_ready(2, WatermarkScanResult(current))
     window._watermarks_ready(1, WatermarkScanResult(stale))
 
-    assert window.catalog.match((2, 2)).exact_path == Path("current.png")
-    assert window.catalog.match((3, 3)).exact_path is None
+    assert window.catalog.paths == (Path("current.png"),)
+    assert window.catalog.find("current.png") == Path("current.png")
+    assert window.catalog.find("stale.png") is None
+    assert window.watermark_selector.currentData() == "current.png"
 
 
 def test_worker_and_signal_bridge_are_retained_until_finished(
@@ -496,6 +499,132 @@ def test_move_buttons_reorder_complete_items_and_update_order(window) -> None:
     assert window.model.items == [first, second]
 
 
+def _platform_control_rects(window, row: int, column: int):
+    index = window.model.index(row, column)
+    option = QStyleOptionViewItem()
+    delegate = window.table.itemDelegateForIndex(index)
+    delegate.initStyleOption(option, index)
+    option.rect = window.table.visualRect(index)
+    option.widget = window.table
+    return delegate.control_rects(option, index)
+
+
+def test_platform_controls_are_centered_and_warning_follows_item(
+    window, application
+) -> None:
+    supported = ImageItem(Path("square.png"), 1000, 1000, 100)
+    unsupported = ImageItem(Path("wide.png"), 2390, 1000, 100)
+    window.model.replace_items([supported, unsupported], 1)
+    window.show()
+    application.processEvents()
+
+    x_check, x_warning = _platform_control_rects(window, 0, ImageTableModel.X)
+    x_cell = window.table.visualRect(window.model.index(0, ImageTableModel.X))
+    assert abs(x_check.center().x() - x_cell.center().x()) <= 1
+    assert abs(x_check.center().y() - x_cell.center().y()) <= 1
+    assert x_warning.isEmpty()
+
+    check, warning = _platform_control_rects(window, 1, ImageTableModel.INSTAGRAM)
+    instagram_cell = window.table.visualRect(
+        window.model.index(1, ImageTableModel.INSTAGRAM)
+    )
+    group_center_x = (check.left() + warning.right()) // 2
+    assert abs(group_center_x - instagram_cell.center().x()) <= 1
+    assert abs(check.center().y() - instagram_cell.center().y()) <= 1
+    assert abs(warning.center().y() - instagram_cell.center().y()) <= 1
+    assert not warning.isEmpty()
+    assert (
+        window.model.data(
+            window.model.index(0, ImageTableModel.INSTAGRAM),
+            ImageTableModel.InstagramRatioWarningRole,
+        )
+        is False
+    )
+
+    window.model.move_row(1, -1)
+    assert window.model.items[0] is unsupported
+    assert (
+        window.model.data(
+            window.model.index(0, ImageTableModel.INSTAGRAM),
+            ImageTableModel.InstagramRatioWarningRole,
+        )
+        is True
+    )
+
+
+def test_platform_checkbox_native_style_option_tracks_model_state(
+    window, application
+) -> None:
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
+    index = window.model.index(0, ImageTableModel.X)
+    option = QStyleOptionViewItem()
+    option.widget = window.table
+    option.rect = window.table.visualRect(index)
+    option.state = QStyle.State_Enabled | QStyle.State_Active
+    delegate = window.platform_check_delegate
+    indicator_rect, _ = delegate.control_rects(option, index)
+
+    unchecked = delegate._checkbox_style_option(option, index, indicator_rect)
+    assert unchecked.checkState == Qt.Unchecked
+    assert unchecked.state & QStyle.State_Off
+    assert not unchecked.state & QStyle.State_On
+    assert unchecked.state & QStyle.State_Enabled
+    assert unchecked.state & QStyle.State_Active
+    assert unchecked.rect == indicator_rect
+
+    assert window.model.setData(index, Qt.Checked, Qt.CheckStateRole)
+    checked = delegate._checkbox_style_option(option, index, indicator_rect)
+    assert checked.checkState == Qt.Checked
+    assert checked.state & QStyle.State_On
+    assert not checked.state & QStyle.State_Off
+    assert checked.state & QStyle.State_Enabled
+    assert checked.state & QStyle.State_Active
+    assert checked.rect == indicator_rect
+
+
+def test_instagram_warning_is_informational_and_checkbox_remains_clickable(
+    window_without_restored_paths, application
+) -> None:
+    window = window_without_restored_paths
+    window.show()
+    application.processEvents()
+    window.table.setFocus()
+    process_deferred_scan(application)
+
+    window.model.replace_items([ImageItem(Path("wide.png"), 2390, 1000, 100)], 1)
+    application.processEvents()
+    index = window.model.index(0, ImageTableModel.INSTAGRAM)
+    check, warning = _platform_control_rects(window, 0, ImageTableModel.INSTAGRAM)
+    assert PlatformCheckDelegate.WARNING_TOOLTIP == (
+        "Aspect ratio may require cropping for Instagram."
+    )
+
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, pos=warning.center())
+    assert not window.model.items[0].export_to_instagram
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, pos=check.center())
+    application.processEvents()
+    assert window.model.items[0].export_to_instagram
+    assert window.model.data(index, ImageTableModel.InstagramRatioWarningRole)
+
+
+def test_instagram_checkbox_remains_clickable_without_warning(
+    window_without_restored_paths, application
+) -> None:
+    window = window_without_restored_paths
+    window.show()
+    application.processEvents()
+    window.table.setFocus()
+    process_deferred_scan(application)
+
+    window.model.replace_items([ImageItem(Path("square.png"), 1000, 1000, 100)], 1)
+    check, warning = _platform_control_rects(window, 0, ImageTableModel.INSTAGRAM)
+    assert warning.isEmpty()
+
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, pos=check.center())
+    application.processEvents()
+    assert window.model.items[0].export_to_instagram
+
+
 def test_table_toolbar_ends_at_table_edge_before_preview(window, application) -> None:
     window.show()
     application.processEvents()
@@ -553,19 +682,10 @@ def test_platform_checkbox_toggles_from_table_view(
     cell_rect = window.table.visualRect(index)
     assert cell_rect.isValid()
 
-    # A checkable item is only toggled when the click lands on the style's
-    # check-indicator sub-element.  Its native position is not necessarily the
-    # center of the cell (notably with the Windows style), so build the same
-    # option the delegate paints and ask the active style for that geometry.
-    option = QStyleOptionViewItem()
-    window.table.itemDelegateForIndex(index).initStyleOption(option, index)
-    option.rect = cell_rect
-    option.widget = window.table
-    indicator_rect = window.table.style().subElementRect(
-        QStyle.SE_ItemViewItemCheckIndicator,
-        option,
-        window.table,
-    )
+    # Use the delegate's shared paint/hit-test geometry.  This exercises the
+    # native Windows checkbox regression without relying on the style's default
+    # (uncentered) item-indicator placement.
+    indicator_rect, _ = _platform_control_rects(window, 0, column)
     assert indicator_rect.isValid()
     assert not indicator_rect.isEmpty()
 

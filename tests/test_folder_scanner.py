@@ -41,7 +41,7 @@ def test_source_scan_is_non_recursive_case_insensitive_and_sorted(
     assert result.issues == ()
 
 
-def test_watermark_scan_uses_pixels_and_detects_duplicate_dimensions(
+def test_watermark_scan_discovers_valid_pngs_in_predictable_order(
     tmp_path: Path,
 ) -> None:
     first = tmp_path / "claims_1x1.png"
@@ -53,33 +53,30 @@ def test_watermark_scan_uses_pixels_and_detects_duplicate_dimensions(
 
     result = scan_watermark_folder(tmp_path)
 
-    assert result.catalog.match((40, 20)).status is WatermarkStatus.AMBIGUOUS
-    assert result.catalog.match((20, 40)).status is WatermarkStatus.EXACT
-    assert result.catalog.match((1, 1)).status is WatermarkStatus.MISSING
+    assert [path.name for path in result.catalog.paths] == [
+        "another.PNG",
+        "claims_1x1.png",
+        "unique.png",
+    ]
     assert result.issues == ()
 
 
-def test_sources_are_classified_against_catalog(tmp_path: Path) -> None:
+def test_sources_share_the_selected_dynamic_asset(tmp_path: Path) -> None:
     exact_source = tmp_path / "exact.png"
     missing_source = tmp_path / "missing.jpg"
     ambiguous_source = tmp_path / "ambiguous.jpeg"
     _image(exact_source, (10, 10))
     _image(missing_source, (20, 10))
     _image(ambiguous_source, (30, 10))
-    catalog = WatermarkCatalog(
-        {
-            (10, 10): [Path("exact-watermark.png")],
-            (30, 10): [Path("one.png"), Path("two.png")],
-        }
-    )
+    catalog = WatermarkCatalog([Path("exact-watermark.png"), Path("two.png")])
 
-    result = scan_input_folder(tmp_path, catalog)
+    result = scan_input_folder(tmp_path, catalog, "two.png")
     statuses = {item.path.name: item.watermark_match.status for item in result.images}
 
     assert statuses == {
-        "ambiguous.jpeg": WatermarkStatus.AMBIGUOUS,
+        "ambiguous.jpeg": WatermarkStatus.EXACT,
         "exact.png": WatermarkStatus.EXACT,
-        "missing.jpg": WatermarkStatus.MISSING,
+        "missing.jpg": WatermarkStatus.EXACT,
     }
 
 

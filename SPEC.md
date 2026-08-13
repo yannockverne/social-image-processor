@@ -253,158 +253,21 @@ Do not alter source dimensions unless a future explicitly enabled profile requir
 
 # 9. Watermark system
 
-## 9.1 Core principle
+Watermarks are reusable transparent PNG artwork assets rather than full-frame canvases.
+The selected folder is scanned non-recursively for valid `.png` files and displayed in
+predictable filename order. Unsupported, corrupt, and nested files are ignored safely.
 
-The watermark system must reproduce an existing Photoshop workflow.
+One globally selected design is persisted by filename. It is rendered at 9% of source
+width while preserving aspect ratio, using Lanczos resampling and a maximum upscale of
+four times natural asset width. Placement is bottom-right with horizontal and vertical
+margins equal to 1.75% of the corresponding source dimension. The mark remains inside
+the source; source dimensions and framing never change.
 
-A watermark file is **not just a logo asset**.
-
-It is a **full-canvas transparent PNG**, already created at a specific target resolution, with the logo positioned exactly where the user wants it.
-
-Example:
-
-```text
-Source image:
-3440 × 1440
-
-Watermark file:
-3440 × 1440 transparent PNG
-```
-
-The watermark is applied exactly like placing the prepared watermark PNG as the top Photoshop layer.
-
-Therefore:
-
-- do **not** calculate watermark size from percentages;
-- do **not** calculate logo placement;
-- do **not** automatically reposition the logo;
-- do **not** automatically scale a watermark during the normal V1 workflow;
-- do **not** infer placement from aspect ratio.
-
-When dimensions match, composite the full watermark canvas over the source image **pixel-for-pixel at 100% scale**.
-
-This full-frame exact-resolution behavior is the authoritative watermark logic for V1.
-
----
-
-## 9.2 Watermark discovery
-
-The application scans the selected Watermark folder.
-
-It should inspect the actual pixel dimensions of each watermark PNG rather than relying exclusively on filenames.
-
-Example folder:
-
-```text
-Watermarks/
-├─ watermark_3440x1440.png
-├─ watermark_4000x5000.png
-├─ watermark_3000x4000.png
-└─ watermark_3840x2160.png
-```
-
-Filenames may follow this convention, but matching should ultimately be based on image dimensions.
-
-The application should build an internal mapping such as:
-
-```text
-3440x1440 → watermark_3440x1440.png
-4000x5000 → watermark_4000x5000.png
-3000x4000 → watermark_3000x4000.png
-```
-
-If several watermark files have the same dimensions, report the ambiguity clearly rather than silently choosing an arbitrary one.
-
----
-
-## 9.3 Exact matching
-
-For each source image, search for a watermark whose dimensions exactly match the source dimensions.
-
-Example:
-
-```text
-M50_001.png
-3440 × 1440
-
-→ use watermark whose canvas is exactly:
-3440 × 1440
-```
-
-The watermark should be alpha-composited directly over the image.
-
-No resize or placement calculation is required.
-
----
-
-## 9.4 Missing watermark behavior
-
-Preventing accidental unwatermarked publishing is one of the primary purposes of this application.
-
-Therefore, when:
-
-```text
-Apply watermark = enabled
-```
-
-and no exact-resolution watermark exists for an image, the application must show a visible warning before processing.
-
-The row should display something similar to:
-
-```text
-⚠ Missing
-```
-
-The processing log should state:
-
-```text
-WARNING: No exact 7680x4320 watermark found for M50_003.png
-```
-
-### V1 default safety behavior
-
-If watermarking is globally enabled and the selected image has no exact matching watermark:
-
-**do not export that image.**
-
-Mark it as skipped and continue processing the rest of the batch.
-
-Example:
-
-```text
-SKIPPED M50_003.png
-Reason: watermark enabled but no exact 7680x4320 watermark exists
-```
-
-A single missing watermark must never stop the rest of the batch.
-
-If the user wants an unwatermarked export, they can explicitly disable the global watermark checkbox.
-
-This behavior should make accidentally forgetting the watermark difficult.
-
----
-
-## 9.5 Future watermark fallback
-
-Do **not** implement automatic same-ratio scaling in V1.
-
-The architecture may later allow an optional explicit fallback such as:
-
-```text
-No exact watermark found.
-Use a proportionally scaled same-ratio watermark?
-```
-
-But this must not be part of normal V1 automatic behavior.
-
-For V1:
-
-```text
-Exact dimensions → use watermark
-No exact dimensions → warn and skip
-```
-
----
+When watermarking is enabled, an absent folder, empty catalog, missing selection, or
+invalid/unavailable selected asset must block or skip processing clearly. It must never
+silently export without the requested watermark. V1 has no opacity editor, manual
+positioning, or per-image watermark selection. Legacy exact-resolution settings are
+ignored safely and require the user to select a reusable design.
 
 ## 10. Preview panel
 
@@ -703,10 +566,10 @@ Avoid assumptions that require an ultrawide monitor.
 2. No automatic crop.
 3. No destructive operation on source files.
 4. All generated files go to the selected Output folder.
-5. Watermark V1 uses **exact-resolution full-frame transparent PNG overlays**.
-6. No percentage-based automatic watermark sizing in V1.
-7. No automatic watermark placement calculation in V1.
-8. If watermarking is enabled and no exact watermark exists, **skip the affected image**.
+5. Watermark V1 uses a selected reusable transparent PNG artwork asset.
+6. Watermark sizing and margins are deterministic proportions of source dimensions.
+7. Automatic watermark placement is bottom-right.
+8. If watermarking is enabled and no valid selection exists, **skip the affected image**.
 9. Application works offline.
 10. No telemetry.
 11. No network dependency.
