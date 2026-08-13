@@ -9,7 +9,8 @@ import tempfile
 
 from PIL import Image, ImageColor
 
-from app.core.errors import DimensionMismatchError, OutputWriteError
+from app.core.errors import OutputWriteError
+from app.core.watermarking import watermark_geometry
 
 DEFAULT_BACKGROUND = "#000000"
 
@@ -31,14 +32,18 @@ class PreparedJPEG:
     icc_profile: bytes | None = None
 
 
-def composite_full_frame(source: Image.Image, watermark: Image.Image) -> Image.Image:
-    """Alpha-composite an exact-size watermark at origin without transforms."""
-    if source.size != watermark.size:
-        raise DimensionMismatchError(source.size, watermark.size)
-
+def composite_watermark(source: Image.Image, watermark: Image.Image) -> Image.Image:
+    """Scale and alpha-composite an artwork asset at proportional bottom-right."""
     source_rgba = source.convert("RGBA")
     watermark_rgba = watermark.convert("RGBA")
-    return Image.alpha_composite(source_rgba, watermark_rgba)
+    size, position = watermark_geometry(source.size, watermark.size)
+    resized = watermark_rgba.resize(size, Image.Resampling.LANCZOS)
+    source_rgba.alpha_composite(resized, position)
+    return source_rgba
+
+
+# Transitional import compatibility; behavior is intentionally dynamic now.
+composite_full_frame = composite_watermark
 
 
 def flatten_to_rgb(
@@ -60,8 +65,8 @@ def render_for_jpeg(
     watermark: Image.Image | None = None,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
 ) -> Image.Image:
-    """Create a same-size RGB raster, optionally with an exact watermark."""
-    composed = composite_full_frame(source, watermark) if watermark else source
+    """Create a same-size RGB raster, optionally with a dynamic watermark."""
+    composed = composite_watermark(source, watermark) if watermark else source
     return flatten_to_rgb(composed, background)
 
 

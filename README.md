@@ -84,22 +84,24 @@ select X and/or Instagram for each desired source, and click **PROCESS IMAGES**.
 Folder settings, JPEG quality, watermark state, and background color are restored
 on later launches.
 
-## Exact-resolution watermark workflow
+## Dynamic watermark workflow
 
-A V1 watermark is a transparent, **full-frame PNG**, not a logo that the application
-positions. Prepare it at precisely the source resolution with the logo already in
-its final location. A `3440 × 1440` source therefore needs one unique `3440 × 1440`
-watermark canvas. Matching uses actual pixel dimensions, not filenames.
+Put reusable transparent PNG artwork (not a full-frame canvas) in the chosen folder.
+Valid immediate `.png` files appear alphabetically in the **Design** selector; other
+formats, directories, and corrupt images are ignored safely. Folder, enabled state,
+and selected filename are remembered.
 
-The overlay is composited one-to-one at `(0, 0)`. V1 never scales, moves, crops, or
-selects by aspect ratio. With **Apply watermark** enabled:
+Artwork renders at **9% of source width**, preserving aspect ratio with Lanczos
+resampling and a 4× natural-size upscale cap. It is placed bottom-right with **1.75%**
+horizontal and vertical margins relative to the corresponding source dimension.
+The entire mark remains inside the image and the source is never cropped or resized.
+Use tightly trimmed transparent assets with enough resolution for the largest output.
 
-- exactly one dimensional match: export with that watermark;
-- no match: skip the complete source;
-- multiple matches: report ambiguity and skip the complete source.
-
-Disable watermarking explicitly to make unwatermarked exports. Transparent source
-pixels are flattened onto black by default before JPEG encoding.
+V1 uses one design for the whole batch and has no drag placement, opacity editor, or
+per-image selection. If watermarking is enabled with an empty, missing, or invalid
+selection, processing is blocked/skipped—never silently exported unwatermarked. Old
+settings load safely; obsolete exact-dimension fields are ignored and require a new
+design selection.
 
 ## Settings, offline operation, and privacy
 

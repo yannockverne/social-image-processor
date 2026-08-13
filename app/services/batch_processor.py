@@ -37,13 +37,15 @@ class BatchProcessor:
         *,
         watermark_enabled: bool,
         watermark_catalog: WatermarkCatalog,
+        selected_watermark: str | Path | None = None,
         jpeg_quality: int = 92,
         background: str | tuple[int, int, int] = "#000000",
     ) -> None:
         self._sources = tuple(sources)
         self._output_directory = Path(output_directory)
         self._watermark_enabled = watermark_enabled
-        self._watermark_catalog = WatermarkCatalog(watermark_catalog.entries)
+        self._watermark_catalog = WatermarkCatalog(watermark_catalog.paths)
+        self._selected_watermark = selected_watermark
         self._jpeg_quality = jpeg_quality
         self._background = background
 
@@ -72,12 +74,11 @@ class BatchProcessor:
             watermark_path: Path | None = None
             try:
                 if self._watermark_enabled:
-                    match = self._watermark_catalog.match(item.dimensions)
+                    match = self._watermark_catalog.match(
+                        item.dimensions, self._selected_watermark
+                    )
                     if match.status is not WatermarkStatus.EXACT:
-                        reason = (
-                            f"watermark enabled but exact {item.width}x{item.height} "
-                            f"match is {match.status.value}"
-                        )
+                        reason = "watermark enabled but no valid watermark design is selected"
                         emit(SkippedSource(item.path, reason))
                         emit(ProgressUpdate(completed, len(selected), item.path))
                         continue
