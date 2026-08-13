@@ -4,10 +4,27 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from PySide6.QtCore import QAbstractTableModel, QByteArray, QMimeData, QModelIndex, Qt
-from PySide6.QtGui import QColor, QPixmap
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QByteArray,
+    QEvent,
+    QMimeData,
+    QModelIndex,
+    QPoint,
+    QRect,
+    QSize,
+    Qt,
+)
+from PySide6.QtGui import QColor, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QApplication,
+    QStyle,
+    QStyledItemDelegate,
+    QStyleOptionViewItem,
+    QToolTip,
+)
 
-from app.models.image_item import ImageItem
+from app.models.image_item import ImageItem, is_instagram_ratio_supported
 from app.models.watermark import WatermarkStatus
 from app.utils.formatting import format_bytes
 
@@ -27,6 +44,7 @@ class ImageTableModel(QAbstractTableModel):
         "Watermark",
     )
     ROW_MIME_TYPE = "application/x-social-image-processor-row"
+    InstagramRatioWarningRole = Qt.UserRole + 1
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -72,6 +90,8 @@ class ImageTableModel(QAbstractTableModel):
                 return Qt.Checked if item.export_to_x else Qt.Unchecked
             if column == self.INSTAGRAM:
                 return Qt.Checked if item.export_to_instagram else Qt.Unchecked
+        if role == self.InstagramRatioWarningRole and column == self.INSTAGRAM:
+            return not is_instagram_ratio_supported(item.width, item.height)
         if role == Qt.ForegroundRole and column == self.WATERMARK:
             status = item.watermark_match.status if item.watermark_match else None
             return QColor("#67d391" if status is WatermarkStatus.EXACT else "#ffb454")
@@ -235,3 +255,107 @@ class ImageTableModel(QAbstractTableModel):
         index = self.index(row, self.THUMBNAIL)
         self.dataChanged.emit(index, index, [Qt.DecorationRole])
         return True
+
+
+class PlatformCheckDelegate(QStyledItemDelegate):
+    """Paint centered native platform checks and an informational ratio warning."""
+
+    WARNING_TOOLTIP = "Aspect ratio may require cropping for Instagram."
+    WARNING_SIZE = 16
+    GROUP_SPACING = 4
+
+    def _style(self, option):
+        return option.widget.style() if option.widget else QApplication.style()
+
+    def _native_indicator_size(self, option) -> QSize:
+        style = self._style(option)
+        return QSize(
+            style.pixelMetric(QStyle.PM_IndicatorWidth, option, option.widget),
+            style.pixelMetric(QStyle.PM_IndicatorHeight, option, option.widget),
+        )
+
+    def control_rects(self, option, index) -> tuple[QRect, QRect]:
+        """Return centered checkbox and optional warning rectangles."""
+        indicator_size = self._native_indicator_size(option)
+        warning = bool(index.data(ImageTableModel.InstagramRatioWarningRole))
+        warning_width = self.WARNING_SIZE if warning else 0
+        group_width = indicator_size.width() + (
+            self.GROUP_SPACING + warning_width if warning else 0
+        )
+        left = option.rect.center().x() - group_width // 2
+        indicator = QRect(
+            QPoint(left, option.rect.center().y() - indicator_size.height() // 2),
+            indicator_size,
+        )
+        warning_rect = QRect()
+        if warning:
+            warning_rect = QRect(
+                left + indicator_size.width() + self.GROUP_SPACING,
+                option.rect.center().y() - self.WARNING_SIZE // 2,
+                self.WARNING_SIZE,
+                self.WARNING_SIZE,
+            )
+        return indicator, warning_rect
+
+    def paint(self, painter: QPainter, option, index) -> None:
+        style = self._style(option)
+        background = type(option)(option)
+        background.features &= ~QStyleOptionViewItem.HasCheckIndicator
+        background.text = ""
+        style.drawControl(QStyle.CE_ItemViewItem, background, painter, option.widget)
+
+        indicator_rect, warning_rect = self.control_rects(option, index)
+        check = type(option)(option)
+        check.rect = indicator_rect
+        check.state &= ~(QStyle.State_On | QStyle.State_Off | QStyle.State_NoChange)
+        state = index.data(Qt.CheckStateRole)
+        check.state |= QStyle.State_On if state == Qt.Checked else QStyle.State_Off
+        style.drawPrimitive(
+            QStyle.PE_IndicatorItemViewItemCheck, check, painter, option.widget
+        )
+
+        if not warning_rect.isEmpty():
+            icon = style.standardIcon(
+                QStyle.SP_MessageBoxWarning, option, option.widget
+            )
+            icon.paint(painter, warning_rect)
+
+    def editorEvent(self, event, model, option, index) -> bool:
+        indicator_rect, _ = self.control_rects(option, index)
+        event_position = event.position()
+        event_position = (
+            event_position.toPoint()
+            if hasattr(event_position, "toPoint")
+            else event_position
+        )
+        # Keep accepting the style's original hit area as well as the newly centered
+        # one. This retains the Windows native delegate interaction workaround.
+        native_rect = self._style(option).subElementRect(
+            QStyle.SE_ItemViewItemCheckIndicator, option, option.widget
+        )
+        if event.type() in (QEvent.MouseButtonRelease, QEvent.MouseButtonDblClick):
+            if event.button() == Qt.LeftButton and (
+                indicator_rect.contains(event_position)
+                or native_rect.contains(event_position)
+            ):
+                if event.type() == QEvent.MouseButtonDblClick:
+                    return True
+                new_state = (
+                    Qt.Unchecked
+                    if index.data(Qt.CheckStateRole) == Qt.Checked
+                    else Qt.Checked
+                )
+                return model.setData(index, new_state, Qt.CheckStateRole)
+            return False
+        if event.type() == QEvent.MouseButtonPress:
+            return indicator_rect.contains(event_position) or native_rect.contains(
+                event_position
+            )
+        return super().editorEvent(event, model, option, index)
+
+    def helpEvent(self, event, view, option, index) -> bool:
+        _, warning_rect = self.control_rects(option, index)
+        if not warning_rect.isEmpty() and warning_rect.contains(event.position()):
+            QToolTip.showText(event.globalPosition(), self.WARNING_TOOLTIP, view)
+            return True
+        return super().helpEvent(event, view, option, index)
