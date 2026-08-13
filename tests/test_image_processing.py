@@ -7,7 +7,7 @@ import pytest
 
 Image = pytest.importorskip("PIL.Image")
 
-from app.core.errors import DimensionMismatchError, OutputWriteError  # noqa: E402
+from app.core.errors import OutputWriteError  # noqa: E402
 from app.core.image_processing import (  # noqa: E402
     composite_full_frame,
     export_jpeg,
@@ -20,27 +20,22 @@ def _digest(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def test_exact_full_frame_alpha_compositing_at_origin() -> None:
-    source = Image.new("RGB", (2, 1), (100, 100, 100))
-    watermark = Image.new("RGBA", (2, 1), (0, 0, 0, 0))
-    watermark.putpixel((0, 0), (200, 0, 0, 128))
+def test_dynamic_alpha_compositing_at_bottom_right() -> None:
+    source = Image.new("RGB", (100, 100), (100, 100, 100))
+    watermark = Image.new("RGBA", (10, 10), (200, 0, 0, 128))
 
     result = composite_full_frame(source, watermark)
 
     assert result.size == source.size
-    assert result.getpixel((0, 0)) == (150, 50, 50, 255)
-    assert result.getpixel((1, 0)) == (100, 100, 100, 255)
+    assert result.getpixel((97, 97)) == (150, 50, 50, 255)
+    assert result.getpixel((0, 0)) == (100, 100, 100, 255)
 
 
-def test_dimension_mismatch_is_typed_and_never_resized() -> None:
+def test_differently_sized_asset_is_resized_without_source_resize() -> None:
     source = Image.new("RGB", (10, 5))
     watermark = Image.new("RGBA", (5, 10))
 
-    with pytest.raises(DimensionMismatchError) as caught:
-        composite_full_frame(source, watermark)
-
-    assert caught.value.source_size == (10, 5)
-    assert caught.value.watermark_size == (5, 10)
+    assert composite_full_frame(source, watermark).size == source.size
 
 
 def test_transparency_flattens_against_default_black_and_custom_background() -> None:
@@ -93,17 +88,17 @@ def test_png_to_jpeg_preserves_dimensions_and_input_files(tmp_path: Path) -> Non
         assert generated.size == (8, 4)
 
 
-def test_export_rejects_mismatched_watermark_without_output(tmp_path: Path) -> None:
+def test_export_accepts_reusable_watermark_and_preserves_dimensions(
+    tmp_path: Path,
+) -> None:
     source_path = tmp_path / "source.png"
     watermark_path = tmp_path / "watermark.png"
     output_path = tmp_path / "output.jpg"
     Image.new("RGB", (8, 4)).save(source_path)
     Image.new("RGBA", (4, 8)).save(watermark_path)
 
-    with pytest.raises(DimensionMismatchError):
-        export_jpeg(source_path, output_path, watermark_path=watermark_path)
-
-    assert not output_path.exists()
+    result = export_jpeg(source_path, output_path, watermark_path=watermark_path)
+    assert result.dimensions == (8, 4)
 
 
 def test_failed_save_leaves_no_completed_or_temporary_file(

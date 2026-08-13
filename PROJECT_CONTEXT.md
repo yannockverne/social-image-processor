@@ -31,10 +31,11 @@ never modified.
 X uses `X_`; Instagram uses `Insta_`. Both output JPEG, preserve dimensions, and do
 not crop or resize. Per-image selections default off.
 
-Watermarks are transparent full-canvas PNGs matched by exact pixel dimensions.
-Composite one-to-one at `(0, 0)` with no scaling, positioning, ratio fallback, or
-crop. Missing and duplicate-dimension matches skip the whole selected source when
-watermarking is enabled.
+Watermarks are reusable transparent PNG artwork assets discovered non-recursively and
+selected globally by filename. Width is 9% of source width (capped at 4× natural asset
+width), aspect ratio is preserved with Lanczos, and bottom-right placement uses 1.75%
+per-axis margins. Missing/unavailable selections never silently export unwatermarked.
+Legacy settings without a selection load safely and require an asset selection.
 
 JPEG quality defaults to 92 (UI range 70–100); transparency defaults to black.
 Metadata identity is not guaranteed; ICC may be retained when safe. Existing and

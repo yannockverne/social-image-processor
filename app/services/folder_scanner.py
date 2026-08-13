@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -40,26 +39,28 @@ class SourceScanResult:
 
 
 def scan_watermark_folder(folder: Path) -> WatermarkScanResult:
-    """Build a dimension-keyed catalog from immediate PNG children of *folder*."""
+    """Discover valid immediate PNG watermark assets in predictable order."""
     candidates, folder_issue = _candidate_files(folder, SUPPORTED_WATERMARK_SUFFIXES)
     if folder_issue is not None:
         return WatermarkScanResult(WatermarkCatalog(), (folder_issue,))
 
-    entries: defaultdict[Dimensions, list[Path]] = defaultdict(list)
+    paths: list[Path] = []
     issues: list[ScanIssue] = []
     for path in candidates:
         try:
-            dimensions = _read_dimensions(path)
+            _read_dimensions(path)
         except _IMAGE_ERRORS as error:
             issues.append(ScanIssue(path, _describe_error(error)))
             continue
-        entries[dimensions].append(path)
+        paths.append(path)
 
-    return WatermarkScanResult(WatermarkCatalog(entries), tuple(issues))
+    return WatermarkScanResult(WatermarkCatalog(paths), tuple(issues))
 
 
 def scan_input_folder(
-    folder: Path, watermark_catalog: WatermarkCatalog
+    folder: Path,
+    watermark_catalog: WatermarkCatalog,
+    selected_watermark: str | Path | None = None,
 ) -> SourceScanResult:
     """Read metadata for immediate supported image children of *folder*."""
     candidates, folder_issue = _candidate_files(folder, SUPPORTED_SOURCE_SUFFIXES)
@@ -82,7 +83,7 @@ def scan_input_folder(
                 width=dimensions[0],
                 height=dimensions[1],
                 size_bytes=size_bytes,
-                watermark_match=watermark_catalog.match(dimensions),
+                watermark_match=watermark_catalog.match(dimensions, selected_watermark),
             )
         )
 

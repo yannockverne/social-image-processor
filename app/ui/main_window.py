@@ -12,6 +12,7 @@ from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
     QCheckBox,
+    QComboBox,
     QFileDialog,
     QFormLayout,
     QFrame,
@@ -144,11 +145,16 @@ class MainWindow(QMainWindow):
         options = QHBoxLayout()
         self.watermark_enabled = QCheckBox("Apply watermark")
         self.watermark_enabled.toggled.connect(self._watermark_toggled)
+        self.watermark_selector = QComboBox()
+        self.watermark_selector.setMinimumWidth(180)
+        self.watermark_selector.currentIndexChanged.connect(self._watermark_selected)
         self.quality = QSpinBox()
         self.quality.setRange(70, 100)
         self.quality.setSuffix(" %")
         self.quality.setFixedWidth(90)
         options.addWidget(self.watermark_enabled)
+        options.addWidget(QLabel("Design"))
+        options.addWidget(self.watermark_selector)
         options.addWidget(QLabel("JPEG quality"))
         options.addWidget(self.quality)
         options.addStretch()
@@ -278,6 +284,7 @@ class MainWindow(QMainWindow):
             self.watermark_path,
             self.watermark_browse,
             self.watermark_enabled,
+            self.watermark_selector,
             self.quality,
             self.table,
             self.move_up_button,
@@ -391,6 +398,7 @@ class MainWindow(QMainWindow):
                 edit.setText(str(path) if path else "")
             self.quality.setValue(self.settings.jpeg_quality)
             self.watermark_enabled.setChecked(self.settings.watermark_enabled)
+            self.watermark_selector.addItem("No watermark selected", None)
         finally:
             del blockers
         self.quality.valueChanged.connect(self.save_settings)
@@ -461,6 +469,7 @@ class MainWindow(QMainWindow):
             self.quality.value(),
             self.watermark_enabled.isChecked(),
             self.settings.background_color,
+            self.watermark_selector.currentData(),
         )
         try:
             self.settings_service.save(self.settings)
@@ -488,6 +497,20 @@ class MainWindow(QMainWindow):
         if generation != self.watermark_generation:
             return
         self.catalog = result.catalog
+        selected = self.settings.selected_watermark
+        blocker = QSignalBlocker(self.watermark_selector)
+        self.watermark_selector.clear()
+        self.watermark_selector.addItem("Select watermark…", None)
+        for asset in self.catalog.paths:
+            self.watermark_selector.addItem(asset.stem, asset.name)
+        selected_index = self.watermark_selector.findData(selected)
+        if selected and selected_index < 0:
+            self.watermark_selector.insertItem(
+                1, f"Unavailable: {Path(selected).stem}", selected
+            )
+            selected_index = 1
+        self.watermark_selector.setCurrentIndex(max(0, selected_index))
+        del blocker
         if result.issues:
             self.log.append(
                 "\n".join(
@@ -496,7 +519,12 @@ class MainWindow(QMainWindow):
                 )
             )
         self.model.items = [
-            replace(item, watermark_match=self.catalog.match(item.dimensions))
+            replace(
+                item,
+                watermark_match=self.catalog.match(
+                    item.dimensions, self.watermark_selector.currentData()
+                ),
+            )
             for item in self.model.items
         ]
         if self.model.items:
@@ -521,7 +549,9 @@ class MainWindow(QMainWindow):
         self.scan_generation += 1
         generation = self.scan_generation
         self.preview.clear()
-        worker = FunctionWorker(scan_input_folder, path, self.catalog)
+        worker = FunctionWorker(
+            scan_input_folder, path, self.catalog, self.watermark_selector.currentData()
+        )
         worker.signals.result.connect(
             lambda result, g=generation: self._scan_ready(g, result)
         )
@@ -573,11 +603,11 @@ class MainWindow(QMainWindow):
         watermark = None
         status = "Watermark disabled"
         if self.watermark_enabled.isChecked():
-            match = item.watermark_match
+            match = self.catalog.match(
+                item.dimensions, self.watermark_selector.currentData()
+            )
             if match and match.status is WatermarkStatus.EXACT:
-                watermark, status = match.exact_path, "✓ Exact watermark preview"
-            elif match and match.status is WatermarkStatus.AMBIGUOUS:
-                status = "⚠ Ambiguous watermark — preview not composited"
+                watermark, status = match.exact_path, "✓ Dynamic watermark preview"
             else:
                 status = "⚠ Missing watermark — preview not composited"
         self.preview.show_loading(item.path.name, status)
@@ -606,6 +636,21 @@ class MainWindow(QMainWindow):
         self.save_settings()
         self._refresh_selected_preview()
 
+    def _watermark_selected(self) -> None:
+        """Persist the global design and refresh row/preview availability."""
+        selected = self.watermark_selector.currentData()
+        self.model.items = [
+            replace(item, watermark_match=self.catalog.match(item.dimensions, selected))
+            for item in self.model.items
+        ]
+        if self.model.items:
+            self.model.dataChanged.emit(
+                self.model.index(0, ImageTableModel.WATERMARK),
+                self.model.index(len(self.model.items) - 1, ImageTableModel.WATERMARK),
+            )
+        self.save_settings()
+        self._refresh_selected_preview()
+
     def start_processing(self) -> None:
         input_dir = self._existing_directory(self.input_path.text())
         output_dir = self._existing_directory(self.output_path.text())
@@ -625,6 +670,14 @@ class MainWindow(QMainWindow):
         if not selected:
             self._validation_error("Select X and/or Instagram for at least one image.")
             return
+        if (
+            self.watermark_enabled.isChecked()
+            and self.catalog.find(self.watermark_selector.currentData()) is None
+        ):
+            self._validation_error(
+                "Watermarking is enabled. Select an available PNG watermark design."
+            )
+            return
         self.save_settings()
         self.log.clear()
         self._set_batch_running(True)
@@ -637,6 +690,7 @@ class MainWindow(QMainWindow):
             output_dir,
             watermark_enabled=self.watermark_enabled.isChecked(),
             watermark_catalog=self.catalog,
+            selected_watermark=self.watermark_selector.currentData(),
             jpeg_quality=self.quality.value(),
             background=self.settings.background_color,
         )

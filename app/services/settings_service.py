@@ -62,6 +62,7 @@ class SettingsService:
             "jpeg_quality": self._quality(settings.jpeg_quality),
             "watermark_enabled": bool(settings.watermark_enabled),
             "background_color": self._color(settings.background_color),
+            "selected_watermark": settings.selected_watermark,
         }
 
         temporary_path: Path | None = None
@@ -91,7 +92,18 @@ class SettingsService:
             jpeg_quality=cls._quality(payload.get("jpeg_quality")),
             watermark_enabled=cls._boolean(payload.get("watermark_enabled"), True),
             background_color=cls._color(payload.get("background_color")),
+            selected_watermark=cls._selected_watermark(
+                payload.get("selected_watermark")
+            ),
         )
+
+    @staticmethod
+    def _selected_watermark(value: Any) -> str | None:
+        # Old settings contain no selection (and occasionally dimension-oriented
+        # keys); they are intentionally ignored until the user chooses an asset.
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            return None
+        return Path(value).name
 
     @staticmethod
     def _path(value: Any) -> Path | None:
