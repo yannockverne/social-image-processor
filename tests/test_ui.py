@@ -43,7 +43,7 @@ from app.models.settings import ApplicationSettings
 from app.services.settings_service import SettingsService
 from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
-from app.ui.image_table import ImageTableModel
+from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.main_window import MainWindow
 from app.ui.theme import apply_theme, configure_application_font
 from app.ui.workers import FunctionWorker
@@ -497,6 +497,75 @@ def test_move_buttons_reorder_complete_items_and_update_order(window) -> None:
     assert window.model.data(window.model.index(0, ImageTableModel.ORDER)) == 1
     window.move_down_button.click()
     assert window.model.items == [first, second]
+
+
+def _platform_control_rects(window, row: int, column: int):
+    index = window.model.index(row, column)
+    option = QStyleOptionViewItem()
+    delegate = window.table.itemDelegateForIndex(index)
+    delegate.initStyleOption(option, index)
+    option.rect = window.table.visualRect(index)
+    option.widget = window.table
+    return delegate.control_rects(option, index)
+
+
+def test_platform_controls_are_centered_and_warning_follows_item(
+    window, application
+) -> None:
+    supported = ImageItem(Path("square.png"), 1000, 1000, 100)
+    unsupported = ImageItem(Path("wide.png"), 2390, 1000, 100)
+    window.model.replace_items([supported, unsupported], 1)
+    window.show()
+    application.processEvents()
+
+    x_check, x_warning = _platform_control_rects(window, 0, ImageTableModel.X)
+    x_cell = window.table.visualRect(window.model.index(0, ImageTableModel.X))
+    assert x_check.center() == x_cell.center()
+    assert x_warning.isEmpty()
+
+    check, warning = _platform_control_rects(window, 1, ImageTableModel.INSTAGRAM)
+    instagram_cell = window.table.visualRect(
+        window.model.index(1, ImageTableModel.INSTAGRAM)
+    )
+    assert (check.left() + warning.right()) // 2 == instagram_cell.center().x()
+    assert not warning.isEmpty()
+    assert (
+        window.model.data(
+            window.model.index(0, ImageTableModel.INSTAGRAM),
+            ImageTableModel.InstagramRatioWarningRole,
+        )
+        is False
+    )
+
+    window.model.move_row(1, -1)
+    assert window.model.items[0] is unsupported
+    assert (
+        window.model.data(
+            window.model.index(0, ImageTableModel.INSTAGRAM),
+            ImageTableModel.InstagramRatioWarningRole,
+        )
+        is True
+    )
+
+
+def test_instagram_warning_is_informational_and_checkbox_remains_clickable(
+    window, application
+) -> None:
+    window.model.replace_items([ImageItem(Path("wide.png"), 2390, 1000, 100)], 1)
+    window.show()
+    application.processEvents()
+    index = window.model.index(0, ImageTableModel.INSTAGRAM)
+    check, warning = _platform_control_rects(window, 0, ImageTableModel.INSTAGRAM)
+    assert PlatformCheckDelegate.WARNING_TOOLTIP == (
+        "Aspect ratio may require cropping for Instagram."
+    )
+
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, pos=warning.center())
+    assert not window.model.items[0].export_to_instagram
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, pos=check.center())
+    application.processEvents()
+    assert window.model.items[0].export_to_instagram
+    assert window.model.data(index, ImageTableModel.InstagramRatioWarningRole)
 
 
 def test_table_toolbar_ends_at_table_edge_before_preview(window, application) -> None:

@@ -47,7 +47,7 @@ from app.models.watermark import WatermarkStatus
 from app.services.batch_processor import BatchProcessor
 from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
 from app.services.settings_service import SettingsService
-from app.ui.image_table import ImageTableModel
+from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.preview_panel import PreviewPanel
 from app.ui.theme import apply_theme
 from app.ui.trello_panel import TrelloPanel
@@ -196,6 +196,13 @@ class MainWindow(QMainWindow):
         self.model = ImageTableModel(self)
         self.table = QTableView()
         self.table.setModel(self.model)
+        self.platform_check_delegate = PlatformCheckDelegate(self.table)
+        self.table.setItemDelegateForColumn(
+            ImageTableModel.X, self.platform_check_delegate
+        )
+        self.table.setItemDelegateForColumn(
+            ImageTableModel.INSTAGRAM, self.platform_check_delegate
+        )
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setDragDropMode(QAbstractItemView.InternalMove)
@@ -209,6 +216,8 @@ class MainWindow(QMainWindow):
         self.table.setColumnWidth(ImageTableModel.ORDER, 55)
         self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 110)
         self.table.setColumnWidth(ImageTableModel.FILENAME, 230)
+        self.table.setColumnWidth(ImageTableModel.X, 44)
+        self.table.setColumnWidth(ImageTableModel.INSTAGRAM, 100)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
