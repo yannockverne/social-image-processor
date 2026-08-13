@@ -301,6 +301,31 @@ class PlatformCheckDelegate(QStyledItemDelegate):
             )
         return indicator, warning_rect
 
+    def _checkbox_style_option(self, option, index, indicator_rect):
+        """Build the model-initialized option used by the native checkbox style."""
+        check = type(option)(option)
+        self.initStyleOption(check, index)
+        check.rect = indicator_rect
+
+        # The option supplied to paint() describes the view item but has not yet
+        # been initialized from the model.  Windows' native style consults the
+        # QStyleOptionViewItem checkState in addition to the State_On/Off bits.
+        # Keep both representations synchronized with the model.
+        check_state = (
+            Qt.Checked if index.data(Qt.CheckStateRole) == Qt.Checked else Qt.Unchecked
+        )
+        check.checkState = check_state
+        check.state &= ~(QStyle.State_On | QStyle.State_Off | QStyle.State_NoChange)
+        check.state |= (
+            QStyle.State_On if check_state == Qt.Checked else QStyle.State_Off
+        )
+
+        # initStyleOption() supplies the model roles; enabled/active belong to
+        # the view's paint context and must remain exactly as the view provided.
+        context_states = QStyle.State_Enabled | QStyle.State_Active
+        check.state = (check.state & ~context_states) | (option.state & context_states)
+        return check
+
     def paint(self, painter: QPainter, option, index) -> None:
         style = self._style(option)
         background = type(option)(option)
@@ -309,11 +334,7 @@ class PlatformCheckDelegate(QStyledItemDelegate):
         style.drawControl(QStyle.CE_ItemViewItem, background, painter, option.widget)
 
         indicator_rect, warning_rect = self.control_rects(option, index)
-        check = type(option)(option)
-        check.rect = indicator_rect
-        check.state &= ~(QStyle.State_On | QStyle.State_Off | QStyle.State_NoChange)
-        state = index.data(Qt.CheckStateRole)
-        check.state |= QStyle.State_On if state == Qt.Checked else QStyle.State_Off
+        check = self._checkbox_style_option(option, index, indicator_rect)
         style.drawPrimitive(
             QStyle.PE_IndicatorItemViewItemCheck, check, painter, option.widget
         )

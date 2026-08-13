@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QMessageBox,
+    QStyle,
     QStyleOptionViewItem,
     QTextEdit,
     QWidget,
@@ -549,6 +550,36 @@ def test_platform_controls_are_centered_and_warning_follows_item(
         )
         is True
     )
+
+
+def test_platform_checkbox_native_style_option_tracks_model_state(
+    window, application
+) -> None:
+    window.model.replace_items([ImageItem(Path("one.png"), 10, 5, 100)], 1)
+    index = window.model.index(0, ImageTableModel.X)
+    option = QStyleOptionViewItem()
+    option.widget = window.table
+    option.rect = window.table.visualRect(index)
+    option.state = QStyle.State_Enabled | QStyle.State_Active
+    delegate = window.platform_check_delegate
+    indicator_rect, _ = delegate.control_rects(option, index)
+
+    unchecked = delegate._checkbox_style_option(option, index, indicator_rect)
+    assert unchecked.checkState == Qt.Unchecked
+    assert unchecked.state & QStyle.State_Off
+    assert not unchecked.state & QStyle.State_On
+    assert unchecked.state & QStyle.State_Enabled
+    assert unchecked.state & QStyle.State_Active
+    assert unchecked.rect == indicator_rect
+
+    assert window.model.setData(index, Qt.Checked, Qt.CheckStateRole)
+    checked = delegate._checkbox_style_option(option, index, indicator_rect)
+    assert checked.checkState == Qt.Checked
+    assert checked.state & QStyle.State_On
+    assert not checked.state & QStyle.State_Off
+    assert checked.state & QStyle.State_Enabled
+    assert checked.state & QStyle.State_Active
+    assert checked.rect == indicator_rect
 
 
 def test_instagram_warning_is_informational_and_checkbox_remains_clickable(
