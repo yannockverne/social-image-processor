@@ -19,10 +19,14 @@ from app.models.results import (
     FailedExport,
     FailedSource,
     ProgressUpdate,
+    R2UploadFinished,
+    R2UploadResult,
+    R2UploadStarted,
     SkippedSource,
     SuccessfulOutput,
 )
 from app.models.watermark import WatermarkStatus
+from app.services.r2_upload_service import R2UploadService
 
 EventCallback = Callable[[BatchEvent], None]
 
@@ -40,6 +44,7 @@ class BatchProcessor:
         selected_watermark: str | Path | None = None,
         jpeg_quality: int = 92,
         background: str | tuple[int, int, int] = "#000000",
+        r2_upload_service: R2UploadService | None = None,
     ) -> None:
         self._sources = tuple(sources)
         self._output_directory = Path(output_directory)
@@ -48,12 +53,14 @@ class BatchProcessor:
         self._selected_watermark = selected_watermark
         self._jpeg_quality = jpeg_quality
         self._background = background
+        self._r2_upload_service = r2_upload_service
 
     def process(self, on_event: EventCallback | None = None) -> BatchResult:
         """Run the captured batch and return all outcomes and accounting data."""
         selected = tuple(item for item in self._sources if _platforms(item))
         allocator = OutputNameAllocator(self._output_directory)
         exports: list[ExportResult] = []
+        uploads = []
         events: list[BatchEvent] = []
         successful_sources = 0
         source_bytes = 0
@@ -114,6 +121,20 @@ class BatchProcessor:
                     output_bytes += generated.size_bytes
                     source_succeeded = True
                     emit(SuccessfulOutput(result))
+                    if self._r2_upload_service is not None:
+                        try:
+                            key = self._r2_upload_service.object_key(generated.path)
+                            emit(R2UploadStarted(generated.path, key))
+                            upload = self._r2_upload_service.upload(generated.path)
+                        except Exception as error:
+                            upload = R2UploadResult(
+                                generated.path,
+                                generated.path.name,
+                                False,
+                                error_message=f"{type(error).__name__}: {error}",
+                            )
+                        uploads.append(upload)
+                        emit(R2UploadFinished(upload))
                 except Exception as error:
                     result = ExportResult(
                         item.path,
@@ -136,7 +157,7 @@ class BatchProcessor:
             output_bytes,
         )
         emit(statistics)
-        return BatchResult(tuple(exports), tuple(events), statistics)
+        return BatchResult(tuple(exports), tuple(events), statistics, tuple(uploads))
 
 
 def _platforms(item: ImageItem) -> tuple[ExportPlatform, ...]:

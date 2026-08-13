@@ -25,6 +25,9 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         watermark_enabled=False,
         background_color="#12abEF",
         selected_watermark="Origin.png",
+        r2_upload_enabled=True,
+        r2_worker_url="https://worker.example/upload",
+        r2_remote_prefix="campaign/2026",
     )
 
     service.save(expected)
@@ -37,8 +40,25 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         watermark_enabled=False,
         background_color="#12ABEF",
         selected_watermark="Origin.png",
+        r2_upload_enabled=True,
+        r2_worker_url="https://worker.example/upload",
+        r2_remote_prefix="campaign/2026",
     )
     assert json.loads(path.read_text(encoding="utf-8"))["jpeg_quality"] == 88
+
+
+def test_existing_settings_without_r2_fields_remain_backward_compatible(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "settings.json"
+    path.write_text('{"jpeg_quality": 85}', encoding="utf-8")
+
+    settings = SettingsService(path).load()
+
+    assert settings.jpeg_quality == 85
+    assert settings.r2_upload_enabled is False
+    assert settings.r2_worker_url == ""
+    assert settings.r2_remote_prefix == ""
 
 
 def test_corrupt_or_non_object_json_returns_defaults(tmp_path: Path) -> None:

@@ -39,6 +39,8 @@ from app.models.results import (
     FailedExport,
     FailedSource,
     ProgressUpdate,
+    R2UploadFinished,
+    R2UploadStarted,
     SkippedSource,
     SuccessfulOutput,
 )
@@ -47,6 +49,7 @@ from app.models.watermark import WatermarkStatus
 from app.services.batch_processor import BatchProcessor
 from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
 from app.services.settings_service import SettingsService
+from app.services.r2_upload_service import R2UploadService
 from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.preview_panel import PreviewPanel
 from app.ui.theme import apply_theme
@@ -159,6 +162,15 @@ class MainWindow(QMainWindow):
         options.addWidget(self.quality)
         options.addStretch()
         setup_layout.addLayout(options)
+        r2_options = QHBoxLayout()
+        self.r2_upload_enabled = QCheckBox("Upload exports to R2")
+        self.r2_worker_url = QLineEdit()
+        self.r2_worker_url.setPlaceholderText("https://worker.example.com/upload")
+        self.r2_worker_url.setClearButtonEnabled(True)
+        r2_options.addWidget(self.r2_upload_enabled)
+        r2_options.addWidget(QLabel("Worker URL"))
+        r2_options.addWidget(self.r2_worker_url, 1)
+        setup_layout.addLayout(r2_options)
         self.trello_panel = TrelloPanel(parent=self)
         self.trello_panel.start_worker.connect(self._start_worker)
         top = QHBoxLayout()
@@ -295,6 +307,8 @@ class MainWindow(QMainWindow):
             self.watermark_enabled,
             self.watermark_selector,
             self.quality,
+            self.r2_upload_enabled,
+            self.r2_worker_url,
             self.table,
             self.move_up_button,
             self.move_down_button,
@@ -396,6 +410,8 @@ class MainWindow(QMainWindow):
             self.watermark_path,
             self.quality,
             self.watermark_enabled,
+            self.r2_upload_enabled,
+            self.r2_worker_url,
         )
         blockers = [QSignalBlocker(control) for control in controls]
         try:
@@ -407,10 +423,14 @@ class MainWindow(QMainWindow):
                 edit.setText(str(path) if path else "")
             self.quality.setValue(self.settings.jpeg_quality)
             self.watermark_enabled.setChecked(self.settings.watermark_enabled)
+            self.r2_upload_enabled.setChecked(self.settings.r2_upload_enabled)
+            self.r2_worker_url.setText(self.settings.r2_worker_url)
             self.watermark_selector.addItem("No watermark selected", None)
         finally:
             del blockers
         self.quality.valueChanged.connect(self.save_settings)
+        self.r2_upload_enabled.toggled.connect(self.save_settings)
+        self.r2_worker_url.editingFinished.connect(self.save_settings)
 
     @staticmethod
     def _existing_directory(text: str) -> Path | None:
@@ -479,6 +499,9 @@ class MainWindow(QMainWindow):
             self.watermark_enabled.isChecked(),
             self.settings.background_color,
             self.watermark_selector.currentData(),
+            self.r2_upload_enabled.isChecked(),
+            self.r2_worker_url.text().strip(),
+            self.settings.r2_remote_prefix,
         )
         try:
             self.settings_service.save(self.settings)
@@ -702,6 +725,14 @@ class MainWindow(QMainWindow):
             selected_watermark=self.watermark_selector.currentData(),
             jpeg_quality=self.quality.value(),
             background=self.settings.background_color,
+            r2_upload_service=(
+                R2UploadService(
+                    self.settings.r2_worker_url,
+                    remote_prefix=self.settings.r2_remote_prefix,
+                )
+                if self.settings.r2_upload_enabled
+                else None
+            ),
         )
         worker = BatchWorker(processor)
         worker.signals.event.connect(self._batch_event)
@@ -735,8 +766,18 @@ class MainWindow(QMainWindow):
                 0,
             )
             self.log.append(
-                f"{event.result.source_path.name}\n→ {event.result.output_path.name}\n{format_bytes(source_size)} → {format_bytes(event.result.output_size_bytes)}\n"
+                f"[EXPORT] {event.result.output_path.name}\n{event.result.source_path.name}\n{format_bytes(source_size)} → {format_bytes(event.result.output_size_bytes)}\n"
             )
+        elif isinstance(event, R2UploadStarted):
+            self.log.append(f"[R2] Uploading {event.local_path.name}...")
+        elif isinstance(event, R2UploadFinished):
+            if event.result.success:
+                self.log.append(f"[R2] Uploaded {event.result.local_path.name}\n")
+            else:
+                self.log.append(
+                    f"[R2] Upload failed for {event.result.local_path.name}: "
+                    f"{event.result.error_message}\n"
+                )
         elif isinstance(event, SkippedSource):
             self.log.append(f"SKIPPED {event.source_path.name}\n{event.message}\n")
         elif isinstance(event, FailedSource):
