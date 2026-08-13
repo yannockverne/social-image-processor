@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from urllib.error import URLError
 
@@ -15,9 +16,9 @@ Image = pytest.importorskip("PIL.Image")
 
 
 class Response:
-    def __init__(self, url: str, status: int = 200) -> None:
+    def __init__(self, body: bytes = b"", status: int = 200) -> None:
         self.status = status
-        self._url = url
+        self._body = body
 
     def __enter__(self):
         return self
@@ -26,10 +27,7 @@ class Response:
         return None
 
     def read(self) -> bytes:
-        return b""
-
-    def geturl(self) -> str:
-        return self._url
+        return self._body
 
 
 def test_successful_upload_uses_put_and_deterministic_encoded_key(
@@ -38,10 +36,11 @@ def test_successful_upload_uses_put_and_deterministic_encoded_key(
     local = tmp_path / "X 01.jpg"
     local.write_bytes(b"jpeg")
     requests = []
+    public_url = "https://pub-example.r2.dev/campaign/X%2001.jpg"
 
     def open_request(request, *, timeout):
         requests.append((request, timeout))
-        return Response(request.full_url)
+        return Response(json.dumps({"ok": True, "publicUrl": public_url}).encode())
 
     service = R2UploadService(
         "https://worker.example/upload/", remote_prefix="campaign", opener=open_request
@@ -50,11 +49,46 @@ def test_successful_upload_uses_put_and_deterministic_encoded_key(
 
     assert result.success
     assert result.object_key == "campaign/X 01.jpg"
-    assert result.public_url == "https://worker.example/upload/campaign/X%2001.jpg"
+    assert result.public_url == public_url
     assert len(requests) == 1
     assert requests[0][0].method == "PUT"
     assert requests[0][0].data == b"jpeg"
     assert requests[0][0].get_header("Content-type") == "image/jpeg"
+    assert requests[0][0].get_header("User-agent") == "SocialImageProcessor/1.0"
+
+
+def test_successful_upload_without_public_url_is_returned_as_failure(
+    tmp_path: Path,
+) -> None:
+    local = tmp_path / "X_01.jpg"
+    local.write_bytes(b"jpeg")
+
+    def open_request(*_args, **_kwargs):
+        return Response(b'{"ok": true, "fileName": "X_01.jpg"}')
+
+    result = R2UploadService(
+        "https://worker.example/upload", opener=open_request
+    ).upload(local)
+
+    assert not result.success
+    assert "usable publicUrl" in result.error_message
+
+
+def test_successful_upload_with_invalid_json_is_returned_as_failure(
+    tmp_path: Path,
+) -> None:
+    local = tmp_path / "X_01.jpg"
+    local.write_bytes(b"jpeg")
+
+    def open_request(*_args, **_kwargs):
+        return Response(b"not JSON")
+
+    result = R2UploadService(
+        "https://worker.example/upload", opener=open_request
+    ).upload(local)
+
+    assert not result.success
+    assert "invalid JSON" in result.error_message
 
 
 @pytest.mark.parametrize("url", ["", "worker.example", "ftp://worker.example"])
@@ -95,7 +129,7 @@ def test_http_failure_is_returned_not_raised(tmp_path: Path) -> None:
     local.write_bytes(b"jpeg")
 
     def reject(request, *, timeout):
-        return Response(request.full_url, status=503)
+        return Response(status=503)
 
     result = R2UploadService("https://worker.example", opener=reject).upload(local)
 
@@ -131,7 +165,7 @@ def test_upload_failures_are_independent_and_keep_local_exports(tmp_path: Path) 
         attempts += 1
         if attempts == 1:
             raise URLError("first failed")
-        return Response(request.full_url)
+        return Response(b'{"publicUrl": "https://pub-example.r2.dev/two.jpg"}')
 
     result = BatchProcessor(
         sources,
