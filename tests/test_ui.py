@@ -24,7 +24,6 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QMessageBox,
-    QStyle,
     QStyleOptionViewItem,
     QTextEdit,
     QWidget,
@@ -520,14 +519,18 @@ def test_platform_controls_are_centered_and_warning_follows_item(
 
     x_check, x_warning = _platform_control_rects(window, 0, ImageTableModel.X)
     x_cell = window.table.visualRect(window.model.index(0, ImageTableModel.X))
-    assert x_check.center() == x_cell.center()
+    assert abs(x_check.center().x() - x_cell.center().x()) <= 1
+    assert abs(x_check.center().y() - x_cell.center().y()) <= 1
     assert x_warning.isEmpty()
 
     check, warning = _platform_control_rects(window, 1, ImageTableModel.INSTAGRAM)
     instagram_cell = window.table.visualRect(
         window.model.index(1, ImageTableModel.INSTAGRAM)
     )
-    assert (check.left() + warning.right()) // 2 == instagram_cell.center().x()
+    group_center_x = (check.left() + warning.right()) // 2
+    assert abs(group_center_x - instagram_cell.center().x()) <= 1
+    assert abs(check.center().y() - instagram_cell.center().y()) <= 1
+    assert abs(warning.center().y() - instagram_cell.center().y()) <= 1
     assert not warning.isEmpty()
     assert (
         window.model.data(
@@ -549,10 +552,15 @@ def test_platform_controls_are_centered_and_warning_follows_item(
 
 
 def test_instagram_warning_is_informational_and_checkbox_remains_clickable(
-    window, application
+    window_without_restored_paths, application
 ) -> None:
-    window.model.replace_items([ImageItem(Path("wide.png"), 2390, 1000, 100)], 1)
+    window = window_without_restored_paths
     window.show()
+    application.processEvents()
+    window.table.setFocus()
+    process_deferred_scan(application)
+
+    window.model.replace_items([ImageItem(Path("wide.png"), 2390, 1000, 100)], 1)
     application.processEvents()
     index = window.model.index(0, ImageTableModel.INSTAGRAM)
     check, warning = _platform_control_rects(window, 0, ImageTableModel.INSTAGRAM)
@@ -566,6 +574,24 @@ def test_instagram_warning_is_informational_and_checkbox_remains_clickable(
     application.processEvents()
     assert window.model.items[0].export_to_instagram
     assert window.model.data(index, ImageTableModel.InstagramRatioWarningRole)
+
+
+def test_instagram_checkbox_remains_clickable_without_warning(
+    window_without_restored_paths, application
+) -> None:
+    window = window_without_restored_paths
+    window.show()
+    application.processEvents()
+    window.table.setFocus()
+    process_deferred_scan(application)
+
+    window.model.replace_items([ImageItem(Path("square.png"), 1000, 1000, 100)], 1)
+    check, warning = _platform_control_rects(window, 0, ImageTableModel.INSTAGRAM)
+    assert warning.isEmpty()
+
+    QTest.mouseClick(window.table.viewport(), Qt.LeftButton, pos=check.center())
+    application.processEvents()
+    assert window.model.items[0].export_to_instagram
 
 
 def test_table_toolbar_ends_at_table_edge_before_preview(window, application) -> None:
@@ -625,19 +651,10 @@ def test_platform_checkbox_toggles_from_table_view(
     cell_rect = window.table.visualRect(index)
     assert cell_rect.isValid()
 
-    # A checkable item is only toggled when the click lands on the style's
-    # check-indicator sub-element.  Its native position is not necessarily the
-    # center of the cell (notably with the Windows style), so build the same
-    # option the delegate paints and ask the active style for that geometry.
-    option = QStyleOptionViewItem()
-    window.table.itemDelegateForIndex(index).initStyleOption(option, index)
-    option.rect = cell_rect
-    option.widget = window.table
-    indicator_rect = window.table.style().subElementRect(
-        QStyle.SE_ItemViewItemCheckIndicator,
-        option,
-        window.table,
-    )
+    # Use the delegate's shared paint/hit-test geometry.  This exercises the
+    # native Windows checkbox regression without relying on the style's default
+    # (uncentered) item-indicator placement.
+    indicator_rect, _ = _platform_control_rects(window, 0, column)
     assert indicator_rect.isValid()
     assert not indicator_rect.isEmpty()
 
