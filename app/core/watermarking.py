@@ -13,6 +13,21 @@ DEFAULT_WATERMARK_SIZE_RATIO = 0.08
 WATERMARK_MARGIN_RATIO = 0.0175
 MAX_UPSCALE_FACTOR = 4.0
 
+_session_watermark_size_ratio = DEFAULT_WATERMARK_SIZE_RATIO
+
+
+def get_watermark_size_ratio() -> float:
+    """Return the current non-persisted watermark size ratio for this session."""
+    return _session_watermark_size_ratio
+
+
+def set_watermark_size_ratio(size_ratio: float) -> None:
+    """Update the in-memory watermark size ratio used by previews and exports."""
+    if size_ratio <= 0:
+        raise ValueError("Watermark size ratio must be positive")
+    global _session_watermark_size_ratio
+    _session_watermark_size_ratio = size_ratio
+
 
 class WatermarkCatalog:
     """Immutable, predictably ordered collection of reusable PNG assets."""
@@ -53,7 +68,7 @@ class WatermarkCatalog:
 def watermark_geometry(
     source_size: Dimensions,
     asset_size: Dimensions,
-    size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
+    size_ratio: float | None = None,
 ) -> tuple[Dimensions, tuple[int, int]]:
     """Return proportional rendered size and bottom-right position.
 
@@ -66,10 +81,11 @@ def watermark_geometry(
     aw, ah = asset_size
     if min(sw, sh, aw, ah) <= 0:
         raise ValueError("Image dimensions must be positive")
-    if size_ratio <= 0:
+    effective_ratio = get_watermark_size_ratio() if size_ratio is None else size_ratio
+    if effective_ratio <= 0:
         raise ValueError("Watermark size ratio must be positive")
     reference_size = math.sqrt(sw * sh)
-    width = max(1, round(reference_size * size_ratio))
+    width = max(1, round(reference_size * effective_ratio))
     width = min(width, round(aw * MAX_UPSCALE_FACTOR), sw)
     height = max(1, round(width * ah / aw))
     if height > sh:
