@@ -13,13 +13,14 @@ pytest.importorskip(
 )
 from PIL import Image
 from PySide6.QtCore import (
+    QEvent,
     QItemSelectionModel,
     QModelIndex,
     Qt,
     QtMsgType,
     qInstallMessageHandler,
 )
-from PySide6.QtGui import QCloseEvent, QFont, QPixmap
+from PySide6.QtGui import QCloseEvent, QFont, QHelpEvent, QPixmap
 from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
@@ -606,6 +607,36 @@ def test_instagram_warning_is_informational_and_checkbox_remains_clickable(
     application.processEvents()
     assert window.model.items[0].export_to_instagram
     assert window.model.data(index, ImageTableModel.InstagramRatioWarningRole)
+
+
+def test_instagram_warning_help_event_uses_qhelp_event_positions(
+    window_without_restored_paths, application, monkeypatch
+) -> None:
+    window = window_without_restored_paths
+    window.show()
+    application.processEvents()
+    window.model.replace_items([ImageItem(Path("wide.png"), 2390, 1000, 100)], 1)
+    application.processEvents()
+
+    index = window.model.index(0, ImageTableModel.INSTAGRAM)
+    option = QStyleOptionViewItem()
+    option.widget = window.table
+    option.rect = window.table.visualRect(index)
+    delegate = window.platform_check_delegate
+    _, warning = delegate.control_rects(option, index)
+    global_position = window.table.viewport().mapToGlobal(warning.center())
+    event = QHelpEvent(QEvent.ToolTip, warning.center(), global_position)
+    tooltip_calls = []
+    monkeypatch.setattr(
+        "app.ui.image_table.QToolTip.showText",
+        lambda *args: tooltip_calls.append(args),
+    )
+
+    assert not hasattr(event, "position")
+    assert delegate.helpEvent(event, window.table, option, index)
+    assert tooltip_calls == [
+        (global_position, PlatformCheckDelegate.WARNING_TOOLTIP, window.table)
+    ]
 
 
 def test_instagram_checkbox_remains_clickable_without_warning(

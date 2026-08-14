@@ -376,7 +376,7 @@ class PlatformCheckDelegate(QStyledItemDelegate):
 
     def helpEvent(self, event, view, option, index) -> bool:
         _, warning_rect = self.control_rects(option, index)
-        if not warning_rect.isEmpty() and warning_rect.contains(event.position()):
-            QToolTip.showText(event.globalPosition(), self.WARNING_TOOLTIP, view)
+        if not warning_rect.isEmpty() and warning_rect.contains(event.pos()):
+            QToolTip.showText(event.globalPos(), self.WARNING_TOOLTIP, view)
             return True
         return super().helpEvent(event, view, option, index)
