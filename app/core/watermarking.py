@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import math
 from pathlib import Path
 
 from app.models.watermark import WatermarkMatch, WatermarkStatus
 
 Dimensions = tuple[int, int]
-WATERMARK_WIDTH_RATIO = 0.09
+DEFAULT_WATERMARK_SIZE_RATIO = 0.08
 WATERMARK_MARGIN_RATIO = 0.0175
 MAX_UPSCALE_FACTOR = 4.0
 
@@ -50,19 +51,25 @@ class WatermarkCatalog:
 
 
 def watermark_geometry(
-    source_size: Dimensions, asset_size: Dimensions
+    source_size: Dimensions,
+    asset_size: Dimensions,
+    size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> tuple[Dimensions, tuple[int, int]]:
     """Return proportional rendered size and bottom-right position.
 
-    Width is 9% of source width, capped at four times the asset's natural width.
-    Each axis uses a 1.75% margin. Rounding is deterministic and the asset always
-    remains wholly inside the source.
+    Width is a configurable percentage of the geometric mean of the source
+    dimensions, capped at four times the asset's natural width. Each axis uses
+    a 1.75% margin. Rounding is deterministic and the asset always remains
+    wholly inside the source.
     """
     sw, sh = source_size
     aw, ah = asset_size
     if min(sw, sh, aw, ah) <= 0:
         raise ValueError("Image dimensions must be positive")
-    width = max(1, round(sw * WATERMARK_WIDTH_RATIO))
+    if size_ratio <= 0:
+        raise ValueError("Watermark size ratio must be positive")
+    reference_size = math.sqrt(sw * sh)
+    width = max(1, round(reference_size * size_ratio))
     width = min(width, round(aw * MAX_UPSCALE_FACTOR), sw)
     height = max(1, round(width * ah / aw))
     if height > sh:
