@@ -12,6 +12,7 @@ def main() -> int:
 
     from app.ui.main_window import MainWindow
     from app.ui.theme import configure_application_font
+    from app.ui.watermark_size_control import install_watermark_size_control
     from app.utils.resources import resource_path
 
     application = QApplication(sys.argv)
@@ -22,6 +23,7 @@ def main() -> int:
         QIcon(str(resource_path("app/assets/icons/social_image_processor.png")))
     )
     window = MainWindow()
+    install_watermark_size_control(window)
     window.show()
     return application.exec()
 
