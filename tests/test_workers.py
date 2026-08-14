@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from threading import Event
+from pathlib import Path
 
 import pytest
 
@@ -13,14 +14,36 @@ pytest.importorskip(
 )
 from PySide6.QtCore import QObject, QThreadPool, Slot
 from PySide6.QtWidgets import QApplication, QWidget
+from PIL import Image
 from shiboken6 import delete
 
+from app.ui import workers as worker_module
 from app.ui.workers import FunctionWorker
 
 
 @pytest.fixture(scope="module")
 def application():
     return QApplication.instance() or QApplication([])
+
+
+def test_preview_passes_custom_watermark_size_ratio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.png"
+    watermark = tmp_path / "watermark.png"
+    Image.new("RGB", (100, 100)).save(source)
+    Image.new("RGBA", (20, 10)).save(watermark)
+    captured: list[float] = []
+    original = worker_module.composite_full_frame
+
+    def capture(image, overlay, size_ratio):
+        captured.append(size_ratio)
+        return original(image, overlay, size_ratio)
+
+    monkeypatch.setattr(worker_module, "composite_full_frame", capture)
+    worker_module.render_preview_bytes(source, (100, 100), watermark, 0.115)
+
+    assert captured == [0.115]
 
 
 def test_worker_completes_after_ui_teardown_without_deleted_signal_source(

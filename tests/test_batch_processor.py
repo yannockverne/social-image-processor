@@ -130,6 +130,33 @@ def test_selected_watermark_is_composited_and_inputs_are_unchanged(
     ]
 
 
+def test_batch_processing_passes_custom_watermark_size_ratio(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    source = tmp_path / "source.png"
+    watermark = tmp_path / "watermark.png"
+    Image.new("RGB", (800, 400), "red").save(source)
+    Image.new("RGBA", (80, 40), "blue").save(watermark)
+    captured: list[float] = []
+    original = batch_module.prepare_jpeg
+
+    def capture(*args: object, **kwargs: object):
+        captured.append(kwargs["watermark_size_ratio"])
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(batch_module, "prepare_jpeg", capture)
+    _run(
+        [_source(source, x=True)],
+        tmp_path / "out",
+        WatermarkCatalog([watermark]),
+        watermark_enabled=True,
+        selected_watermark=watermark.name,
+        watermark_size_ratio=0.115,
+    )
+
+    assert captured == [0.115]
+
+
 @pytest.mark.parametrize("watermarks", [[], ["one.png", "two.png"]])
 def test_missing_or_ambiguous_watermark_skips_complete_source(
     tmp_path: Path, watermarks: list[str]
