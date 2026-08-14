@@ -10,6 +10,7 @@ from PIL import Image
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 from app.core.image_processing import composite_full_frame
+from app.core.watermarking import DEFAULT_WATERMARK_SIZE_RATIO
 
 
 class WorkerSignals(QObject):
@@ -38,7 +39,7 @@ class FunctionWorker(QRunnable):
     def __init__(self, function, *args, **kwargs) -> None:
         super().__init__()
         # The Python wrapper owns WorkerSignals.  Native QThreadPool auto-delete
-        # can invalidate that ownership at the end of run on some PySide builds.
+        # can invalidate that ownership at the end of run on some PySide6 platform.
         self.setAutoDelete(False)
         self.function, self.args, self.kwargs = function, args, kwargs
         self.signals = WorkerSignals()
@@ -58,7 +59,10 @@ class FunctionWorker(QRunnable):
 
 
 def render_preview_bytes(
-    source: Path, size: tuple[int, int], watermark: Path | None = None
+    source: Path,
+    size: tuple[int, int],
+    watermark: Path | None = None,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> bytes:
     """Return a bounded PNG preview; only exact-match paths are supplied by UI."""
     with Image.open(source) as image:
@@ -66,7 +70,7 @@ def render_preview_bytes(
         if watermark is not None:
             with Image.open(watermark) as overlay:
                 overlay.load()
-                image = composite_full_frame(image, overlay)
+                image = composite_full_frame(image, overlay, watermark_size_ratio)
         image.thumbnail(size, Image.Resampling.LANCZOS)
         output = BytesIO()
         image.convert("RGBA").save(output, "PNG")
