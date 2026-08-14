@@ -30,6 +30,34 @@ class Response:
         return self._body
 
 
+@pytest.mark.parametrize("filename", ["X_01_photo.jpg", "Insta_01_photo.jpg"])
+def test_object_key_preserves_export_filename_beneath_prefix(
+    tmp_path: Path, filename: str
+) -> None:
+    service = R2UploadService("https://worker.example", remote_prefix="card-id")
+
+    assert service.object_key(tmp_path / filename) == f"card-id/{filename}"
+
+
+def test_different_card_prefixes_produce_different_keys_for_same_export(
+    tmp_path: Path,
+) -> None:
+    export = tmp_path / "X_01_photo.jpg"
+
+    assert (
+        R2UploadService("https://worker.example", remote_prefix="card-one").object_key(
+            export
+        )
+        == "card-one/X_01_photo.jpg"
+    )
+    assert (
+        R2UploadService("https://worker.example", remote_prefix="card-two").object_key(
+            export
+        )
+        == "card-two/X_01_photo.jpg"
+    )
+
+
 def test_successful_upload_uses_put_and_deterministic_encoded_key(
     tmp_path: Path,
 ) -> None:
