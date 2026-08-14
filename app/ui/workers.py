@@ -10,7 +10,6 @@ from PIL import Image
 from PySide6.QtCore import QObject, QRunnable, Signal, Slot
 
 from app.core.image_processing import composite_full_frame
-from app.core.watermarking import DEFAULT_WATERMARK_SIZE_RATIO
 
 
 class WorkerSignals(QObject):
@@ -62,7 +61,7 @@ def render_preview_bytes(
     source: Path,
     size: tuple[int, int],
     watermark: Path | None = None,
-    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
+    watermark_size_ratio: float | None = None,
 ) -> bytes:
     """Return a bounded PNG preview; only exact-match paths are supplied by UI."""
     with Image.open(source) as image:
