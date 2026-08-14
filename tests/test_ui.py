@@ -723,6 +723,36 @@ def test_selection_and_watermark_toggle_refresh_preview(window, monkeypatch) -> 
     assert len(calls) >= 2
 
 
+def test_watermark_size_is_session_only_and_refreshes_preview(
+    application, tmp_path: Path, monkeypatch
+) -> None:
+    service = SettingsService(tmp_path / "settings.json")
+    first = MainWindow(service)
+    calls: list[bool] = []
+    monkeypatch.setattr(first, "_refresh_selected_preview", lambda: calls.append(True))
+
+    assert first.watermark_size.value() == 8.0
+    assert first.watermark_size.minimum() == 3.0
+    assert first.watermark_size.maximum() == 15.0
+    assert first.watermark_size.singleStep() == 0.5
+    assert first.watermark_size.decimals() == 1
+
+    first.watermark_size.setValue(11.5)
+    first.save_settings()
+    assert calls == [True]
+    assert "watermark_size" not in (tmp_path / "settings.json").read_text()
+    first.close()
+
+    reopened = MainWindow(service)
+    assert reopened.watermark_size.value() == 8.0
+    reopened._set_batch_running(True)
+    assert not reopened.watermark_size.isEnabled()
+    reopened._set_batch_running(False)
+    assert reopened.watermark_size.isEnabled()
+    reopened.close()
+    application.processEvents()
+
+
 def test_progress_results_statistics_and_completion_restore_controls(
     window, tmp_path: Path
 ) -> None:

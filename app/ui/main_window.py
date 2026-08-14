@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QProgressBar,
     QPushButton,
+    QDoubleSpinBox,
     QSpinBox,
     QSplitter,
     QTableView,
@@ -32,7 +33,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from app.core.watermarking import WatermarkCatalog
+from app.core.watermarking import DEFAULT_WATERMARK_SIZE_RATIO, WatermarkCatalog
 from app.models.results import (
     BatchStatistics,
     ExportStatus,
@@ -151,6 +152,19 @@ class MainWindow(QMainWindow):
         self.watermark_selector = QComboBox()
         self.watermark_selector.setMinimumWidth(180)
         self.watermark_selector.currentIndexChanged.connect(self._watermark_selected)
+        self.watermark_size = QDoubleSpinBox()
+        self.watermark_size.setObjectName("watermarkSize")
+        self.watermark_size.setRange(3.0, 15.0)
+        self.watermark_size.setSingleStep(0.5)
+        self.watermark_size.setDecimals(1)
+        self.watermark_size.setSuffix(" %")
+        self.watermark_size.setFixedWidth(90)
+        self.watermark_size.setValue(DEFAULT_WATERMARK_SIZE_RATIO * 100)
+        self.watermark_size.setToolTip(
+            "Watermark width as a percentage of the image's geometric mean. "
+            "This value resets to 8% on every launch."
+        )
+        self.watermark_size.valueChanged.connect(self._refresh_selected_preview)
         self.quality = QSpinBox()
         self.quality.setRange(70, 100)
         self.quality.setSuffix(" %")
@@ -158,6 +172,8 @@ class MainWindow(QMainWindow):
         options.addWidget(self.watermark_enabled)
         options.addWidget(QLabel("Design"))
         options.addWidget(self.watermark_selector)
+        options.addWidget(QLabel("Watermark size"))
+        options.addWidget(self.watermark_size)
         options.addWidget(QLabel("JPEG quality"))
         options.addWidget(self.quality)
         options.addStretch()
@@ -306,6 +322,7 @@ class MainWindow(QMainWindow):
             self.watermark_browse,
             self.watermark_enabled,
             self.watermark_selector,
+            self.watermark_size,
             self.quality,
             self.r2_upload_enabled,
             self.r2_worker_url,
@@ -659,7 +676,13 @@ class MainWindow(QMainWindow):
             else:
                 status = "⚠ Missing watermark — preview not composited"
         self.preview.show_loading(item.path.name, status)
-        worker = FunctionWorker(render_preview_bytes, item.path, (900, 700), watermark)
+        worker = FunctionWorker(
+            render_preview_bytes,
+            item.path,
+            (900, 700),
+            watermark,
+            self.watermark_size.value() / 100,
+        )
         worker.signals.result.connect(
             lambda data, g=generation: self._preview_ready(g, data)
         )
@@ -757,6 +780,7 @@ class MainWindow(QMainWindow):
             watermark_enabled=self.watermark_enabled.isChecked(),
             watermark_catalog=self.catalog,
             selected_watermark=self.watermark_selector.currentData(),
+            watermark_size_ratio=self.watermark_size.value() / 100,
             jpeg_quality=self.quality.value(),
             background=self.settings.background_color,
             r2_upload_service=r2_service,

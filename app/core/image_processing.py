@@ -10,7 +10,7 @@ import tempfile
 from PIL import Image, ImageColor
 
 from app.core.errors import OutputWriteError
-from app.core.watermarking import watermark_geometry
+from app.core.watermarking import DEFAULT_WATERMARK_SIZE_RATIO, watermark_geometry
 
 DEFAULT_BACKGROUND = "#000000"
 
@@ -35,7 +35,7 @@ class PreparedJPEG:
 def composite_watermark(
     source: Image.Image,
     watermark: Image.Image,
-    size_ratio: float | None = None,
+    size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> Image.Image:
     """Scale and alpha-composite an artwork asset at proportional bottom-right."""
     source_rgba = source.convert("RGBA")
@@ -68,7 +68,7 @@ def render_for_jpeg(
     source: Image.Image,
     watermark: Image.Image | None = None,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
-    watermark_size_ratio: float | None = None,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> Image.Image:
     """Create a same-size RGB raster, optionally with a dynamic watermark."""
     composed = (
@@ -86,7 +86,7 @@ def export_jpeg(
     watermark_path: Path | None = None,
     quality: int = 92,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
-    watermark_size_ratio: float | None = None,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> JPEGExport:
     """Render *source_path* and safely finalize a JPEG in the output directory.
 
@@ -110,7 +110,7 @@ def prepare_jpeg(
     *,
     watermark_path: Path | None = None,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
-    watermark_size_ratio: float | None = None,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> PreparedJPEG:
     """Decode and render a source once for one or more identical exports."""
     with Image.open(source_path) as source:
