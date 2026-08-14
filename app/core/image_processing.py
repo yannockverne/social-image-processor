@@ -10,7 +10,7 @@ import tempfile
 from PIL import Image, ImageColor
 
 from app.core.errors import OutputWriteError
-from app.core.watermarking import watermark_geometry
+from app.core.watermarking import DEFAULT_WATERMARK_SIZE_RATIO, watermark_geometry
 
 DEFAULT_BACKGROUND = "#000000"
 
@@ -32,11 +32,15 @@ class PreparedJPEG:
     icc_profile: bytes | None = None
 
 
-def composite_watermark(source: Image.Image, watermark: Image.Image) -> Image.Image:
+def composite_watermark(
+    source: Image.Image,
+    watermark: Image.Image,
+    size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
+) -> Image.Image:
     """Scale and alpha-composite an artwork asset at proportional bottom-right."""
     source_rgba = source.convert("RGBA")
     watermark_rgba = watermark.convert("RGBA")
-    size, position = watermark_geometry(source.size, watermark.size)
+    size, position = watermark_geometry(source.size, watermark.size, size_ratio)
     resized = watermark_rgba.resize(size, Image.Resampling.LANCZOS)
     source_rgba.alpha_composite(resized, position)
     return source_rgba
@@ -64,9 +68,14 @@ def render_for_jpeg(
     source: Image.Image,
     watermark: Image.Image | None = None,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> Image.Image:
     """Create a same-size RGB raster, optionally with a dynamic watermark."""
-    composed = composite_watermark(source, watermark) if watermark else source
+    composed = (
+        composite_watermark(source, watermark, watermark_size_ratio)
+        if watermark
+        else source
+    )
     return flatten_to_rgb(composed, background)
 
 
@@ -77,6 +86,7 @@ def export_jpeg(
     watermark_path: Path | None = None,
     quality: int = 92,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> JPEGExport:
     """Render *source_path* and safely finalize a JPEG in the output directory.
 
@@ -87,7 +97,10 @@ def export_jpeg(
         raise ValueError("JPEG quality must be between 1 and 100")
 
     prepared = prepare_jpeg(
-        source_path, watermark_path=watermark_path, background=background
+        source_path,
+        watermark_path=watermark_path,
+        background=background,
+        watermark_size_ratio=watermark_size_ratio,
     )
     return export_prepared_jpeg(prepared, output_path, quality=quality)
 
@@ -97,6 +110,7 @@ def prepare_jpeg(
     *,
     watermark_path: Path | None = None,
     background: str | tuple[int, int, int] = DEFAULT_BACKGROUND,
+    watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
 ) -> PreparedJPEG:
     """Decode and render a source once for one or more identical exports."""
     with Image.open(source_path) as source:
@@ -108,7 +122,12 @@ def prepare_jpeg(
         else:
             with Image.open(watermark_path) as watermark:
                 watermark.load()
-                rendered = render_for_jpeg(source, watermark, background)
+                rendered = render_for_jpeg(
+                    source,
+                    watermark,
+                    background,
+                    watermark_size_ratio,
+                )
     return PreparedJPEG(rendered, safe_icc_profile)
 
 
