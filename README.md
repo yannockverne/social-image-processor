@@ -34,7 +34,7 @@ Trello credentials.
   drives processing, platform numbering, and Trello attachment order.
 - JPEG quality from 70 to 100 (default 92), original pixel dimensions, no crop,
   and no resize.
-- Strict exact-resolution, full-frame PNG watermark matching and preview.
+- Dynamic reusable PNG watermark design with proportional sizing and preview.
 - Safe skip when a required watermark is missing or ambiguous.
 - Collision-safe numbered names and atomic output finalization.
 - Per-file errors, progress, logs, and signed size/reduction statistics.
@@ -82,7 +82,8 @@ python -m app.main
 Choose distinct input and output folders, optionally choose a watermark folder,
 select X and/or Instagram for each desired source, and click **PROCESS IMAGES**.
 Folder settings, JPEG quality, watermark state, and background color are restored
-on later launches.
+on later launches. Watermark size is intentionally session-only and returns to
+8% on every launch.
 
 ## Dynamic watermark workflow
 
@@ -91,11 +92,14 @@ Valid immediate `.png` files appear alphabetically in the **Design** selector; o
 formats, directories, and corrupt images are ignored safely. Folder, enabled state,
 and selected filename are remembered.
 
-Artwork renders at **9% of source width**, preserving aspect ratio with Lanczos
-resampling and a 4× natural-size upscale cap. It is placed bottom-right with **1.75%**
-horizontal and vertical margins relative to the corresponding source dimension.
-The entire mark remains inside the image and the source is never cropped or resized.
-Use tightly trimmed transparent assets with enough resolution for the largest output.
+Artwork width defaults to **8% of the geometric mean of the source dimensions**
+(`sqrt(width × height)`), preserving aspect ratio with Lanczos resampling and a 4×
+natural-size upscale cap. The **Watermark size** control can adjust this from 3% to
+15% in 0.5-point steps for the current session. It is placed bottom-right with
+**1.75%** horizontal and vertical margins relative to the corresponding source
+dimension. The entire mark remains inside the image and the source is never cropped
+or resized. Use tightly trimmed transparent assets with enough resolution for the
+largest output.
 
 V1 uses one design for the whole batch and has no drag placement, opacity editor, or
 per-image selection. If watermarking is enabled with an empty, missing, or invalid
