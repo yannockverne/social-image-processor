@@ -310,14 +310,19 @@ def test_r2_and_trello_sync_once_in_export_order(tmp_path: Path) -> None:
     result = _run(
         [_source(source, x=True, instagram=True)],
         tmp_path / "out",
-        r2_upload_service=FakeR2(["https://pub/X_01.jpg", "https://pub/Insta_01.jpg"]),
+        r2_upload_service=FakeR2(
+            [
+                "https://pub/card/X_01.jpg",
+                "https://pub/card/Insta_01.jpg",
+            ]
+        ),
         trello_service=trello,
         trello_card_id="card",
     )
     assert result.trello_urls_updated == 2
     assert len(trello.updates) == 1
     assert trello.updates[0][1].endswith(
-        "## URL MAKE\nhttps://pub/X_01.jpg\nhttps://pub/Insta_01.jpg\n"
+        "## URL MAKE\nhttps://pub/card/X_01.jpg\nhttps://pub/card/Insta_01.jpg\n"
     )
 
 

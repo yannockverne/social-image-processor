@@ -749,24 +749,33 @@ class MainWindow(QMainWindow):
                 "Watermarking is enabled. Select an available PNG watermark design."
             )
             return
-        r2_service = None
-        if self.r2_upload_enabled.isChecked():
-            r2_service = R2UploadService(
-                self.r2_worker_url.text(),
-                remote_prefix=self.settings.r2_remote_prefix,
-            )
-            if r2_service.validation_error:
-                self._validation_error(r2_service.validation_error)
-                return
-        if self.trello_update_enabled.isChecked():
+        trello_update_enabled = self.trello_update_enabled.isChecked()
+        trello_service = None
+        trello_card_id = None
+        if trello_update_enabled:
             if not self.r2_upload_enabled.isChecked():
                 self._validation_error("Enable R2 upload before updating Trello.")
                 return
             if self.trello_panel.service is None:
                 self._validation_error("Connect to Trello before processing.")
                 return
-            if not self.trello_panel.card.currentData():
+            trello_card_id = self.trello_panel.card.currentData()
+            if not trello_card_id:
                 self._validation_error("Select a Trello card before processing.")
+                return
+            trello_service = self.trello_panel.service
+        r2_service = None
+        if self.r2_upload_enabled.isChecked():
+            r2_service = R2UploadService(
+                self.r2_worker_url.text(),
+                remote_prefix=(
+                    trello_card_id
+                    if trello_update_enabled
+                    else self.settings.r2_remote_prefix
+                ),
+            )
+            if r2_service.validation_error:
+                self._validation_error(r2_service.validation_error)
                 return
         self.save_settings()
         self.log.clear()
@@ -784,16 +793,8 @@ class MainWindow(QMainWindow):
             jpeg_quality=self.quality.value(),
             background=self.settings.background_color,
             r2_upload_service=r2_service,
-            trello_service=(
-                self.trello_panel.service
-                if self.trello_update_enabled.isChecked()
-                else None
-            ),
-            trello_card_id=(
-                self.trello_panel.card.currentData()
-                if self.trello_update_enabled.isChecked()
-                else None
-            ),
+            trello_service=trello_service,
+            trello_card_id=trello_card_id,
         )
         worker = BatchWorker(processor)
         worker.signals.event.connect(self._batch_event)

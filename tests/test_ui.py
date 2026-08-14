@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from pathlib import Path
 from threading import Event
 
@@ -795,6 +796,59 @@ def test_empty_folder_fields_are_rejected_for_processing(window, monkeypatch) ->
 
     assert messages == [True]
     assert not window.batch_running
+
+
+def _capture_configured_batch(window, tmp_path, monkeypatch):
+    input_directory = tmp_path / "input"
+    output_directory = tmp_path / "output"
+    input_directory.mkdir()
+    output_directory.mkdir()
+    source = input_directory / "source.jpg"
+    Image.new("RGB", (8, 4)).save(source)
+    window.input_path.setText(str(input_directory))
+    window.output_path.setText(str(output_directory))
+    window.model.replace_items(
+        [ImageItem(source, 8, 4, source.stat().st_size, export_to_x=True)], 1
+    )
+    window.watermark_enabled.setChecked(False)
+    window.r2_upload_enabled.setChecked(True)
+    window.r2_worker_url.setText("https://worker.example/upload")
+    workers = []
+    monkeypatch.setattr(window, "_start_worker", workers.append)
+    window.start_processing()
+    return workers[0].processor
+
+
+def test_trello_batch_uses_one_selected_card_id_for_r2_and_update(
+    window, tmp_path: Path, monkeypatch
+) -> None:
+    window.settings = replace(window.settings, r2_remote_prefix="configured-prefix")
+    trello_service = object()
+    window.trello_panel.service = trello_service
+    window.trello_panel.card.addItem("Human-readable title", "trello-card-123")
+    window.trello_update_enabled.setChecked(True)
+
+    processor = _capture_configured_batch(window, tmp_path, monkeypatch)
+
+    assert processor._r2_upload_service.remote_prefix == "trello-card-123"
+    assert processor._trello_service is trello_service
+    assert processor._trello_card_id == "trello-card-123"
+    assert window.settings.r2_remote_prefix == "configured-prefix"
+
+
+def test_r2_only_batch_keeps_configured_prefix_without_requiring_trello(
+    window, tmp_path: Path, monkeypatch
+) -> None:
+    window.settings = replace(window.settings, r2_remote_prefix="configured-prefix")
+    window.trello_update_enabled.setChecked(False)
+    window.trello_panel.service = None
+
+    processor = _capture_configured_batch(window, tmp_path, monkeypatch)
+
+    assert processor._r2_upload_service.remote_prefix == "configured-prefix"
+    assert processor._trello_service is None
+    assert processor._trello_card_id is None
+    assert window.settings.r2_remote_prefix == "configured-prefix"
 
 
 def test_import_has_no_application_start_side_effect() -> None:
