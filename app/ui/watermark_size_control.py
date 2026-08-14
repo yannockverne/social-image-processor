@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from PySide6.QtWidgets import QDoubleSpinBox, QLabel, QLayout, QWidget
+from PySide6.QtWidgets import QBoxLayout, QDoubleSpinBox, QLabel, QLayout, QWidget
 
 from app.core.watermarking import (
     DEFAULT_WATERMARK_SIZE_RATIO,
@@ -30,8 +30,8 @@ def install_watermark_size_control(window) -> QDoubleSpinBox:
     options = _find_layout_containing(
         window.centralWidget().layout(), window.watermark_selector
     )
-    if options is None:
-        raise RuntimeError("Could not locate watermark options layout")
+    if not isinstance(options, QBoxLayout):
+        raise RuntimeError("Could not locate watermark options row")
 
     selector_index = _widget_index(options, window.watermark_selector)
     label = QLabel("Watermark size")
