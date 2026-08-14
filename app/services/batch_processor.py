@@ -8,7 +8,7 @@ from urllib.parse import urlsplit
 
 from app.core.image_processing import export_prepared_jpeg, prepare_jpeg
 from app.core.output_naming import OutputNameAllocator
-from app.core.watermarking import DEFAULT_WATERMARK_SIZE_RATIO, WatermarkCatalog
+from app.core.watermarking import WatermarkCatalog
 from app.models.image_item import ImageItem
 from app.models.profiles import ExportPlatform
 from app.models.results import (
@@ -44,7 +44,7 @@ class BatchProcessor:
         watermark_enabled: bool,
         watermark_catalog: WatermarkCatalog,
         selected_watermark: str | Path | None = None,
-        watermark_size_ratio: float = DEFAULT_WATERMARK_SIZE_RATIO,
+        watermark_size_ratio: float | None = None,
         jpeg_quality: int = 92,
         background: str | tuple[int, int, int] = "#000000",
         r2_upload_service: R2UploadService | None = None,
