@@ -10,7 +10,7 @@ class LoadingOverlay(QWidget):
     def __init__(self, target: QWidget) -> None:
         super().__init__(target)
         self.setObjectName("loadingOverlay")
-        self.setAttribute(self.WidgetAttribute.WA_TransparentForMouseEvents)
+        self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         layout = QVBoxLayout(self)
         layout.addStretch()
         self.message = QLabel("Scanning images…")
