@@ -11,7 +11,7 @@ from app.core.watermarking import WatermarkCatalog
 from app.models.image_item import ImageItem
 from app.models.results import ExportStatus
 from app.services.batch_processor import BatchProcessor
-from app.services.r2_upload_service import R2UploadService
+from app.services.r2_upload_service import R2UploadService, _normalize_public_url
 
 Image = pytest.importorskip("PIL.Image")
 
@@ -99,11 +99,6 @@ def test_successful_upload_uses_put_and_deterministic_encoded_key(
             "/6a7df8822f0780ff12264f40%2FMy%20Image%2001.jpg",
             "/6a7df8822f0780ff12264f40/My%20Image%2001.jpg",
         ),
-        (
-            "Image #1?.jpg",
-            "/6a7df8822f0780ff12264f40%2FImage%20%231%3F.jpg",
-            "/6a7df8822f0780ff12264f40/Image%20%231%3F.jpg",
-        ),
     ],
 )
 def test_worker_public_url_preserves_key_path_and_filename_encoding(
@@ -129,6 +124,22 @@ def test_worker_public_url_preserves_key_path_and_filename_encoding(
     assert "%2F" not in result.public_url
     assert unquote(urlsplit(requests[0].full_url).path).lstrip("/") == result.object_key
     assert unquote(urlsplit(result.public_url).path).lstrip("/") == result.object_key
+
+
+def test_public_url_encodes_filename_characters_without_local_file() -> None:
+    object_key = "6a7df8822f0780ff12264f40/Image #1?.jpg"
+    public_url = (
+        "https://pub-example.r2.dev/"
+        "6a7df8822f0780ff12264f40%2FImage%20%231%3F.jpg"
+    )
+
+    result = _normalize_public_url(public_url, object_key)
+
+    assert urlsplit(result).path == (
+        "/6a7df8822f0780ff12264f40/Image%20%231%3F.jpg"
+    )
+    assert "%2F" not in result
+    assert unquote(urlsplit(result).path).lstrip("/") == object_key
 
 
 def test_already_encoded_public_url_is_not_double_encoded(tmp_path: Path) -> None:
