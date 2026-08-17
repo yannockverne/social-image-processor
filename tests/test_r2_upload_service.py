@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from urllib.error import URLError
+from urllib.parse import unquote, urlsplit
 
 import pytest
 
@@ -83,6 +84,67 @@ def test_successful_upload_uses_put_and_deterministic_encoded_key(
     assert requests[0][0].data == b"jpeg"
     assert requests[0][0].get_header("Content-type") == "image/jpeg"
     assert requests[0][0].get_header("User-agent") == "SocialImageProcessor/1.0"
+
+
+@pytest.mark.parametrize(
+    ("filename", "worker_path", "expected_path"),
+    [
+        (
+            "Insta_01_2.jpg",
+            "/6a7df8822f0780ff12264f40%2FInsta_01_2.jpg",
+            "/6a7df8822f0780ff12264f40/Insta_01_2.jpg",
+        ),
+        (
+            "My Image 01.jpg",
+            "/6a7df8822f0780ff12264f40%2FMy%20Image%2001.jpg",
+            "/6a7df8822f0780ff12264f40/My%20Image%2001.jpg",
+        ),
+        (
+            "Image #1?.jpg",
+            "/6a7df8822f0780ff12264f40%2FImage%20%231%3F.jpg",
+            "/6a7df8822f0780ff12264f40/Image%20%231%3F.jpg",
+        ),
+    ],
+)
+def test_worker_public_url_preserves_key_path_and_filename_encoding(
+    tmp_path: Path, filename: str, worker_path: str, expected_path: str
+) -> None:
+    local = tmp_path / filename
+    local.write_bytes(b"jpeg")
+    requests = []
+
+    def open_request(request, *, timeout):
+        requests.append(request)
+        public_url = f"https://pub-example.r2.dev{worker_path}"
+        return Response(json.dumps({"publicUrl": public_url}).encode())
+
+    result = R2UploadService(
+        "https://worker.example",
+        remote_prefix="6a7df8822f0780ff12264f40",
+        opener=open_request,
+    ).upload(local)
+
+    assert result.success
+    assert urlsplit(result.public_url).path == expected_path
+    assert "%2F" not in result.public_url
+    assert unquote(urlsplit(requests[0].full_url).path).lstrip("/") == result.object_key
+    assert unquote(urlsplit(result.public_url).path).lstrip("/") == result.object_key
+
+
+def test_already_encoded_public_url_is_not_double_encoded(tmp_path: Path) -> None:
+    local = tmp_path / "My Image.jpg"
+    local.write_bytes(b"jpeg")
+    public_url = "https://pub-example.r2.dev/card/My%20Image.jpg"
+
+    def open_request(*_args, **_kwargs):
+        return Response(json.dumps({"publicUrl": public_url}).encode())
+
+    result = R2UploadService(
+        "https://worker.example", remote_prefix="card", opener=open_request
+    ).upload(local)
+
+    assert result.public_url == public_url
+    assert "%2520" not in result.public_url
 
 
 def test_successful_upload_without_public_url_is_returned_as_failure(

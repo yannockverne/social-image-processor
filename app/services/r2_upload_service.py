@@ -88,8 +88,28 @@ class R2UploadService:
                     raise RuntimeError(
                         "Worker response did not include a usable publicUrl"
                     )
+                public_url = _normalize_public_url(public_url.strip(), key)
             return R2UploadResult(path, key, True, public_url)
         except Exception as error:
             return R2UploadResult(
                 path, key, False, error_message=f"{type(error).__name__}: {error}"
             )
+
+
+def _normalize_public_url(public_url: str, object_key: str) -> str:
+    """Preserve key path separators in an otherwise valid Worker public URL.
+
+    Some Worker versions encoded the complete object key as one path segment,
+    producing ``%2F`` between the prefix and filename. Only that exact trailing
+    key representation is corrected. Already-correct URLs are returned verbatim,
+    so encoded filename characters such as ``%20`` are not encoded a second time.
+    """
+    parsed = urlsplit(public_url)
+    opaque_key = quote(object_key, safe="")
+    path_key = quote(object_key, safe="/")
+    if opaque_key == path_key or not parsed.path.lower().endswith(opaque_key.lower()):
+        return public_url
+    corrected_path = parsed.path[: -len(opaque_key)] + path_key
+    return urlunsplit(
+        (parsed.scheme, parsed.netloc, corrected_path, parsed.query, parsed.fragment)
+    )
