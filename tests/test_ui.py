@@ -240,6 +240,32 @@ def test_trello_activity_reaches_shared_log(window) -> None:
     assert "Trello: X_ready.jpg uploaded." in window.log.toPlainText()
 
 
+def test_v2_menus_and_integration_status_are_available(window) -> None:
+    assert [action.text().replace("&", "") for action in window.menuBar().actions()] == [
+        "File",
+        "Trello",
+        "R2 Upload",
+        "Help",
+    ]
+    assert window.trello_status.text() == "Trello: Disconnected"
+    assert window.r2_status.text() == "R2: Not configured"
+    assert window.selected_card_status.text() == "Selected card: None"
+
+    window.r2_worker_url.setText("https://worker.example/upload")
+    assert window.r2_status.text() == "R2: Ready"
+
+
+def test_loading_overlay_reports_and_cleans_up_preparation(window) -> None:
+    window.loading_overlay.show_work("Scanning images…")
+    assert not window.loading_overlay.isHidden()
+    assert window.loading_overlay.message.text() == "Scanning images…"
+
+    window.scan_generation = 3
+    window._scan_error(3, "folder unavailable")
+    assert window.loading_overlay.isHidden()
+    assert window.progress_text.text() == "Image scan failed"
+
+
 def test_launch_with_saved_paths_defers_and_safely_restores_scans(
     application, tmp_path: Path, monkeypatch
 ) -> None:
