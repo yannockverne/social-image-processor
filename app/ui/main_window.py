@@ -7,7 +7,8 @@ import os
 from pathlib import Path
 
 from PySide6.QtCore import QItemSelection, QSignalBlocker, QThreadPool, QTimer, Qt
-from PySide6.QtGui import QCloseEvent, QPixmap
+from PySide6.QtGui import QCloseEvent, QDesktopServices, QPixmap
+from PySide6.QtCore import QUrl
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QApplication,
@@ -52,6 +53,8 @@ from app.services.folder_scanner import scan_input_folder, scan_watermark_folder
 from app.services.settings_service import SettingsService
 from app.services.r2_upload_service import R2UploadService
 from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
+from app.ui.integration_dialogs import R2SettingsDialog, TrelloConfigurationDialog
+from app.ui.loading_overlay import LoadingOverlay
 from app.ui.preview_panel import PreviewPanel
 from app.ui.theme import apply_theme
 from app.ui.trello_panel import TrelloPanel
@@ -87,6 +90,8 @@ class MainWindow(QMainWindow):
         self.watermark_generation = 0
         self.preview_generation = 0
         self.batch_running = False
+        self._thumbnail_total = 0
+        self._thumbnail_completed = 0
         self._build_ui()
         apply_theme(self)
         self._restore_settings()
@@ -98,6 +103,7 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self._scan_restored_paths)
 
     def _build_ui(self) -> None:
+        self._build_menu()
         central = QWidget()
         central.setObjectName("mainContent")
         outer = QVBoxLayout(central)
@@ -178,24 +184,32 @@ class MainWindow(QMainWindow):
         options.addWidget(self.quality)
         options.addStretch()
         setup_layout.addLayout(options)
-        r2_options = QHBoxLayout()
+        integration_options = QHBoxLayout()
         self.r2_upload_enabled = QCheckBox("Upload exports to R2")
         self.trello_update_enabled = QCheckBox("Update Trello card")
         self.r2_worker_url = QLineEdit()
         self.r2_worker_url.setPlaceholderText("https://worker.example.com/upload")
         self.r2_worker_url.setClearButtonEnabled(True)
-        r2_options.addWidget(self.r2_upload_enabled)
-        r2_options.addWidget(QLabel("Worker URL"))
-        r2_options.addWidget(self.r2_worker_url, 1)
-        setup_layout.addLayout(r2_options)
-        setup_layout.addWidget(self.trello_update_enabled)
+        integration_options.addWidget(self.r2_upload_enabled)
+        integration_options.addWidget(self.trello_update_enabled)
+        integration_options.addStretch()
+        setup_layout.addLayout(integration_options)
         self.trello_panel = TrelloPanel(parent=self)
         self.trello_panel.start_worker.connect(self._start_worker)
-        top = QHBoxLayout()
-        top.setSpacing(10)
-        top.addWidget(setup_card, 2)
-        top.addWidget(self.trello_panel, 1)
-        outer.addLayout(top)
+        self.trello_dialog = TrelloConfigurationDialog(self.trello_panel, self)
+        self.r2_dialog = R2SettingsDialog(
+            self.r2_worker_url, self.settings.r2_remote_prefix, self
+        )
+        status_row = QHBoxLayout()
+        self.trello_status = QLabel("Trello: Disconnected")
+        self.r2_status = QLabel("R2: Not configured")
+        self.selected_card_status = QLabel("Selected card: None")
+        for label in (self.trello_status, self.r2_status, self.selected_card_status):
+            label.setObjectName("integrationStatus")
+            status_row.addWidget(label)
+        status_row.addStretch()
+        setup_layout.addLayout(status_row)
+        outer.addWidget(setup_card)
 
         self.table_area = QWidget()
         table_layout = QVBoxLayout(self.table_area)
@@ -253,6 +267,7 @@ class MainWindow(QMainWindow):
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
         self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
         table_layout.addWidget(self.table)
+        self.loading_overlay = LoadingOverlay(self.table_area)
         self.preview = PreviewPanel()
         split = QSplitter(Qt.Horizontal)
         split.addWidget(self.table_area)
@@ -313,6 +328,8 @@ class MainWindow(QMainWindow):
         processing.addWidget(self.process_button)
         outer.addWidget(footer)
         self.setCentralWidget(central)
+        self.trello_panel.state_changed.connect(self._update_integration_status)
+        self.r2_worker_url.textChanged.connect(self._update_integration_status)
         self.conflicting_controls = [
             self.input_path,
             self.input_browse,
@@ -332,6 +349,61 @@ class MainWindow(QMainWindow):
             self.move_down_button,
             self.process_button,
         ]
+        self._connect_menu_actions()
+
+    def _build_menu(self) -> None:
+        file_menu = self.menuBar().addMenu("&File")
+        self.open_output_action = file_menu.addAction("Open Output Folder")
+        self.open_output_action.triggered.connect(self.open_output_folder)
+        file_menu.addSeparator()
+        self.quit_action = file_menu.addAction("Quit")
+        self.quit_action.triggered.connect(self.close)
+
+        trello_menu = self.menuBar().addMenu("&Trello")
+        self.trello_settings_action = trello_menu.addAction("Configuration…")
+        self.trello_connect_action = trello_menu.addAction("Connect / Reconnect")
+        self.trello_disconnect_action = trello_menu.addAction("Disconnect")
+
+        r2_menu = self.menuBar().addMenu("&R2 Upload")
+        self.r2_settings_action = r2_menu.addAction("Settings…")
+
+        help_menu = self.menuBar().addMenu("&Help")
+        self.about_action = help_menu.addAction("About")
+
+    def _connect_menu_actions(self) -> None:
+        self.trello_settings_action.triggered.connect(self.trello_dialog.open)
+        self.trello_connect_action.triggered.connect(self.trello_panel.connect_trello)
+        self.trello_disconnect_action.triggered.connect(
+            self.trello_panel.disconnect_trello
+        )
+        self.r2_settings_action.triggered.connect(self.r2_dialog.open)
+        self.about_action.triggered.connect(self.show_about)
+
+    def open_output_folder(self) -> None:
+        path = self._existing_directory(self.output_path.text())
+        if path is None:
+            self._validation_error("Choose a valid output folder first.")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
+
+    def show_about(self) -> None:
+        QMessageBox.about(
+            self,
+            "About Social Image Processor",
+            "<b>Social Image Processor</b><br>Prepare social-ready image batches for publishing.",
+        )
+
+    def _update_integration_status(self) -> None:
+        connected = self.trello_panel.service is not None
+        self.trello_status.setText(
+            f"Trello: {'Connected' if connected else 'Disconnected'}"
+        )
+        card = self.trello_panel.card.currentText() if connected else ""
+        if not self.trello_panel.card.currentData():
+            card = "None"
+        self.selected_card_status.setText(f"Selected card: {card}")
+        configured = not bool(R2UploadService(self.r2_worker_url.text()).validation_error)
+        self.r2_status.setText(f"R2: {'Ready' if configured else 'Not configured'}")
 
     def _move_selected_row(self, offset: int) -> None:
         rows = self.table.selectionModel().selectedRows()
@@ -455,6 +527,7 @@ class MainWindow(QMainWindow):
         self.trello_update_enabled.toggled.connect(self.save_settings)
         self.r2_worker_url.editingFinished.connect(self.save_settings)
         self._r2_toggled(self.r2_upload_enabled.isChecked())
+        self._update_integration_status()
 
     def _r2_toggled(self, enabled: bool) -> None:
         if not enabled:
@@ -610,17 +683,23 @@ class MainWindow(QMainWindow):
             self.scan_generation += 1
             self.model.replace_items((), self.scan_generation)
             self.preview.clear()
+            self.loading_overlay.finish()
             return
         self.scan_generation += 1
         generation = self.scan_generation
         self.preview.clear()
+        self._thumbnail_total = 0
+        self._thumbnail_completed = 0
+        self.loading_overlay.show_work("Scanning images…")
         worker = FunctionWorker(
             scan_input_folder, path, self.catalog, self.watermark_selector.currentData()
         )
         worker.signals.result.connect(
             lambda result, g=generation: self._scan_ready(g, result)
         )
-        worker.signals.error.connect(self._show_worker_error)
+        worker.signals.error.connect(
+            lambda message, g=generation: self._scan_error(g, message)
+        )
         self._start_worker(worker)
 
     def _scan_ready(self, generation: int, result) -> None:
@@ -629,6 +708,15 @@ class MainWindow(QMainWindow):
         self.model.replace_items(result.images, generation)
         for issue in result.issues:
             self.log.append(f"SOURCE SCAN ERROR {issue.path.name}: {issue.message}")
+        self._thumbnail_total = len(result.images)
+        self._thumbnail_completed = 0
+        if not result.images:
+            self.loading_overlay.finish()
+            self.progress_text.setText("Ready — no images found")
+            return
+        self.loading_overlay.show_work(
+            f"Generating thumbnails… 0 / {self._thumbnail_total}"
+        )
         for row, item in enumerate(result.images):
             worker = FunctionWorker(render_preview_bytes, item.path, (120, 70))
             worker.signals.result.connect(
@@ -636,7 +724,30 @@ class MainWindow(QMainWindow):
                     g, r, p, data
                 )
             )
+            worker.signals.error.connect(self._show_worker_error)
+            worker.signals.finished.connect(
+                lambda _worker, g=generation: self._thumbnail_finished(g)
+            )
             self._start_worker(worker)
+
+    def _scan_error(self, generation: int, message: str) -> None:
+        self._show_worker_error(message)
+        if generation == self.scan_generation:
+            self.loading_overlay.finish()
+            self.progress_text.setText("Image scan failed")
+
+    def _thumbnail_finished(self, generation: int) -> None:
+        if generation != self.scan_generation:
+            return
+        self._thumbnail_completed += 1
+        if self._thumbnail_completed >= self._thumbnail_total:
+            self.loading_overlay.finish()
+            self.progress_text.setText(f"Ready — {self._thumbnail_total} images")
+        else:
+            self.loading_overlay.show_work(
+                "Generating thumbnails… "
+                f"{self._thumbnail_completed} / {self._thumbnail_total}"
+            )
 
     def _thumbnail_ready(
         self, generation: int, row: int, source_path: Path, data: bytes
