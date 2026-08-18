@@ -30,18 +30,25 @@ It preserves the source framing and pixel dimensions: there is no automatic crop
 - Progress, activity logging, and batch metrics for source size, output size, saved bytes, and reduction.
 - Local settings restoration with robust handling of stale paths and corrupt files.
 
+## Documentation
+
+- [`SPEC.md`](SPEC.md) — current functional contract.
+- [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md) — compact architectural memory and invariants.
+- [`PUBLISHING_WORKFLOW.md`](PUBLISHING_WORKFLOW.md) — R2 → Trello → Make / Buffer handoff.
+- [`PACKAGING.md`](PACKAGING.md) — supported Windows one-folder PyInstaller build and validation.
+
 ## Export naming
 
 X outputs use `X_` and Instagram outputs use `Insta_`.
 
-Platform selections are numbered independently in visible table order. For example, the first selected `photo.png` can produce:
+Platform selections are numbered independently in visible table order. For example, one batch can produce:
 
 ```text
-X_01_photo.jpg
-Insta_01_photo.jpg
+X_01.jpg
+Insta_01.jpg
 ```
 
-Existing filenames are preserved as much as possible; collisions gain `_2`, `_3`, and so on.
+Existing generated names are collision-safe; suffixes such as `_2`, `_3`, and so on are added when needed.
 
 ## Requirements
 
@@ -141,8 +148,8 @@ If at least one usable URL exists, the application performs a single Trello desc
 
 ```markdown
 ## URL MAKE
-https://example.invalid/X_01_photo.jpg
-https://example.invalid/Insta_01_photo.jpg
+https://example.invalid/X_01.jpg
+https://example.invalid/Insta_01.jpg
 ```
 
 If the section already exists, only that managed section is replaced. Text before and after it is preserved. If the section does not exist, it is appended cleanly.
@@ -226,11 +233,22 @@ The application currently has no:
 
 It preserves stored source dimensions but does not promise metadata identity or provide a metadata-policy UI. A close request is rejected while background work is active; wait for the current work to finish.
 
-## Future Windows packaging
+## Windows packaging
 
-A standalone executable is planned but is not currently part of the normal source workflow.
+The repository contains a supported one-folder PyInstaller build path:
 
-The source entry point is packaging-safe and settings remain in `%APPDATA%`. See [`PACKAGING.md`](PACKAGING.md) for the recommended PyInstaller task, asset considerations, and validation checklist.
+```powershell
+python -m pip install -r requirements-dev.txt
+.\build_windows.ps1
+```
+
+Expected executable:
+
+```text
+dist\SocialImageProcessor\SocialImageProcessor.exe
+```
+
+Ship the complete `dist\SocialImageProcessor\` folder. There is currently no installer or one-file distribution contract. See [`PACKAGING.md`](PACKAGING.md) for build details and the native Windows validation checklist.
 
 ## License
 
