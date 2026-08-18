@@ -65,14 +65,21 @@ def process_deferred_scan(application) -> None:
     application.processEvents()
 
 
-def test_image_and_results_layout_prioritizes_preview_space(window) -> None:
+def test_image_and_results_layout_prioritizes_preview_space(
+    window, application
+) -> None:
+    window.show()
+    application.processEvents()
+
     header = window.table.horizontalHeader()
+    pane_sizes = window.image_splitter.sizes()
 
     assert header.sectionResizeMode(ImageTableModel.FILENAME) == QHeaderView.Interactive
     assert header.sectionResizeMode(ImageTableModel.WATERMARK) == QHeaderView.Fixed
     assert window.table.columnWidth(ImageTableModel.FILENAME) == 460
-    assert window.image_splitter.stretchFactor(0) == 11
-    assert window.image_splitter.stretchFactor(1) == 9
+    assert all(size > 0 for size in pane_sizes)
+    preview_fraction = pane_sizes[1] / sum(pane_sizes)
+    assert 0.40 <= preview_fraction <= 0.50
     assert window.log.minimumHeight() == 80
 
 
