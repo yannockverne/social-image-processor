@@ -284,8 +284,20 @@ class MainWindow(QMainWindow):
         self.image_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         outer.addWidget(self.image_splitter, 1)
 
+        # Keep vertical sizing separate from the splitter: on some native Qt
+        # platforms QSplitter drops its maximum height when it is shown.  The
+        # structural parent owns the row height while the splitter only divides
+        # the available width between Activity and Batch Metrics.
+        self.results_container = QFrame()
+        self.results_container.setMaximumHeight(self.RESULTS_MAXIMUM_HEIGHT)
+        self.results_container.setSizePolicy(
+            QSizePolicy.Expanding, QSizePolicy.Preferred
+        )
+        results_layout = QVBoxLayout(self.results_container)
+        results_layout.setContentsMargins(0, 0, 0, 0)
+        results_layout.setSpacing(0)
+
         self.results_splitter = QSplitter(Qt.Horizontal)
-        self.results_splitter.setMaximumHeight(self.RESULTS_MAXIMUM_HEIGHT)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -324,7 +336,8 @@ class MainWindow(QMainWindow):
         # Its children advertise useful horizontal expansion while the parent
         # layout gives all surplus height to the table and preview above.
         self.results_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        outer.addWidget(self.results_splitter, 0)
+        results_layout.addWidget(self.results_splitter)
+        outer.addWidget(self.results_container, 0)
 
         footer = QFrame()
         footer.setObjectName("footer")

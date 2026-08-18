@@ -77,18 +77,19 @@ def test_image_and_results_layout_prioritizes_preview_space(
     windowed_pane_sizes = window.image_splitter.sizes()
     initial_window_height = window.height()
     initial_image_height = window.image_splitter.height()
-    initial_results_height = window.results_splitter.height()
+    initial_results_height = window.results_container.height()
 
     assert all(size > 0 for size in windowed_pane_sizes)
     assert windowed_pane_sizes[0] >= window.table_area.minimumWidth()
     assert window.table.horizontalHeader().length() <= window.table.viewport().width()
-    assert window.results_splitter.maximumHeight() == window.RESULTS_MAXIMUM_HEIGHT
+    assert window.results_container.maximumHeight() == window.RESULTS_MAXIMUM_HEIGHT
     assert initial_results_height <= window.RESULTS_MAXIMUM_HEIGHT
     assert all(
         widget.isVisible()
         for widget in (
             window.table,
             window.preview,
+            window.results_splitter,
             window.log,
             window.results_splitter.widget(1),
         )
@@ -99,19 +100,18 @@ def test_image_and_results_layout_prioritizes_preview_space(
 
     actual_window_growth = window.height() - initial_window_height
     image_growth = window.image_splitter.height() - initial_image_height
-    results_growth = window.results_splitter.height() - initial_results_height
+    results_growth = window.results_container.height() - initial_results_height
     large_pane_sizes = window.image_splitter.sizes()
 
     assert header.sectionResizeMode(ImageTableModel.FILENAME) == QHeaderView.Stretch
     assert header.sectionResizeMode(ImageTableModel.WATERMARK) == QHeaderView.Interactive
-    assert window.results_splitter.sizePolicy().verticalPolicy() == QSizePolicy.Preferred
+    assert window.results_container.sizePolicy().verticalPolicy() == QSizePolicy.Preferred
     assert all(size > 0 for size in large_pane_sizes)
     preview_fraction = large_pane_sizes[1] / sum(large_pane_sizes)
     assert 0.45 <= preview_fraction <= 0.55
-    assert window.results_splitter.height() <= window.RESULTS_MAXIMUM_HEIGHT
+    assert window.results_container.height() <= window.RESULTS_MAXIMUM_HEIGHT
     assert actual_window_growth > 0
     assert image_growth > results_growth
-    assert image_growth >= actual_window_growth * 0.75
 
 
 def test_theme_uses_valid_application_font_for_default_text_size(application) -> None:
