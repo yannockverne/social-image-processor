@@ -274,13 +274,14 @@ class MainWindow(QMainWindow):
         self.image_splitter.setStretchFactor(0, 11)
         self.image_splitter.setStretchFactor(1, 9)
         self.image_splitter.setSizes([704, 576])
-        outer.addWidget(self.image_splitter, 3)
+        self.image_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        outer.addWidget(self.image_splitter, 1)
 
-        bottom = QSplitter(Qt.Horizontal)
+        self.results_splitter = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setMinimumHeight(80)
-        self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.log.setPlaceholderText("Processing and Trello activity will appear here.")
         self.trello_panel.activity.connect(self.log.append)
         stats_frame = QFrame()
@@ -308,11 +309,15 @@ class MainWindow(QMainWindow):
         ):
             metric_grid.addWidget(self._metric(label, value), index // 2, index % 2)
         stats.addLayout(metric_grid)
-        bottom.addWidget(self.log)
-        bottom.addWidget(stats_frame)
-        bottom.setSizes([900, 300])
-        bottom.setMaximumHeight(90)
-        outer.addWidget(bottom)
+        self.results_splitter.addWidget(self.log)
+        self.results_splitter.addWidget(stats_frame)
+        self.results_splitter.setSizes([900, 300])
+        # This row is a compact summary, not another vertical work surface.
+        # Its children advertise useful horizontal expansion while the parent
+        # layout gives all surplus height to the table and preview above.
+        self.results_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.results_splitter.setMaximumHeight(90)
+        outer.addWidget(self.results_splitter, 0)
 
         footer = QFrame()
         footer.setObjectName("footer")
