@@ -82,6 +82,8 @@ def test_image_and_results_layout_prioritizes_preview_space(
     assert all(size > 0 for size in windowed_pane_sizes)
     assert windowed_pane_sizes[0] >= window.table_area.minimumWidth()
     assert window.table.horizontalHeader().length() <= window.table.viewport().width()
+    assert window.results_splitter.maximumHeight() == window.RESULTS_MAXIMUM_HEIGHT
+    assert initial_results_height <= window.RESULTS_MAXIMUM_HEIGHT
     assert all(
         widget.isVisible()
         for widget in (
@@ -105,10 +107,11 @@ def test_image_and_results_layout_prioritizes_preview_space(
     assert window.results_splitter.sizePolicy().verticalPolicy() == QSizePolicy.Preferred
     assert all(size > 0 for size in large_pane_sizes)
     preview_fraction = large_pane_sizes[1] / sum(large_pane_sizes)
-    assert preview_fraction >= 0.35
+    assert 0.45 <= preview_fraction <= 0.55
+    assert window.results_splitter.height() <= window.RESULTS_MAXIMUM_HEIGHT
     assert actual_window_growth > 0
     assert image_growth > results_growth
-    assert results_growth <= actual_window_growth * 0.25
+    assert image_growth >= actual_window_growth * 0.75
 
 
 def test_theme_uses_valid_application_font_for_default_text_size(application) -> None:
