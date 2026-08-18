@@ -120,17 +120,7 @@ class MainWindow(QMainWindow):
         identity.addWidget(subtitle)
         outer.addLayout(identity)
 
-        setup_card = QFrame()
-        setup_card.setObjectName("card")
-        setup_layout = QVBoxLayout(setup_card)
-        setup_layout.setContentsMargins(14, 11, 14, 13)
-        setup_layout.setSpacing(8)
-        setup_title = QLabel("FOLDERS & OPTIONS")
-        setup_title.setObjectName("sectionTitle")
-        setup_layout.addWidget(setup_title)
-        form = QFormLayout()
-        form.setHorizontalSpacing(14)
-        form.setVerticalSpacing(7)
+        # Construct the existing controls once, then organize them by workflow.
         self.input_path, self.input_browse = self._path_row(
             "Select input folder", self.scan_input
         )
@@ -138,25 +128,10 @@ class MainWindow(QMainWindow):
         self.watermark_path, self.watermark_browse = self._path_row(
             "Select watermark folder", self.refresh_watermarks
         )
-        form.addRow(
-            self._field_label("Input folder"),
-            self._row_widget(self.input_path, self.input_browse),
-        )
-        form.addRow(
-            self._field_label("Output folder"),
-            self._row_widget(self.output_path, self.output_browse),
-        )
-        form.addRow(
-            self._field_label("Watermark folder"),
-            self._row_widget(self.watermark_path, self.watermark_browse),
-        )
-        setup_layout.addLayout(form)
-
-        options = QHBoxLayout()
         self.watermark_enabled = QCheckBox("Apply watermark")
         self.watermark_enabled.toggled.connect(self._watermark_toggled)
         self.watermark_selector = QComboBox()
-        self.watermark_selector.setMinimumWidth(180)
+        self.watermark_selector.setMinimumWidth(150)
         self.watermark_selector.currentIndexChanged.connect(self._watermark_selected)
         self.watermark_size = QDoubleSpinBox()
         self.watermark_size.setObjectName("watermarkSize")
@@ -175,60 +150,71 @@ class MainWindow(QMainWindow):
         self.quality.setRange(70, 100)
         self.quality.setSuffix(" %")
         self.quality.setFixedWidth(90)
-        options.addWidget(self.watermark_enabled)
-        options.addWidget(QLabel("Design"))
-        options.addWidget(self.watermark_selector)
-        options.addWidget(QLabel("Watermark size"))
-        options.addWidget(self.watermark_size)
-        options.addWidget(QLabel("JPEG quality"))
-        options.addWidget(self.quality)
-        options.addStretch()
-        setup_layout.addLayout(options)
-        integration_options = QHBoxLayout()
+
         self.r2_upload_enabled = QCheckBox("Upload exports to R2")
         self.trello_update_enabled = QCheckBox("Update Trello card")
         self.r2_worker_url = QLineEdit()
         self.r2_worker_url.setPlaceholderText("https://worker.example.com/upload")
         self.r2_worker_url.setClearButtonEnabled(True)
-        integration_options.addWidget(self.r2_upload_enabled)
-        integration_options.addWidget(self.trello_update_enabled)
-        integration_options.addStretch()
-        setup_layout.addLayout(integration_options)
         self.trello_panel = TrelloPanel(parent=self)
         self.trello_panel.start_worker.connect(self._start_worker)
         self.trello_dialog = TrelloConfigurationDialog(self.trello_panel, self)
         self.r2_dialog = R2SettingsDialog(
             self.r2_worker_url, self.settings.r2_remote_prefix, self
         )
-        status_row = QHBoxLayout()
         self.trello_status = QLabel("Trello: Disconnected")
         self.r2_status = QLabel("R2: Not configured")
-        self.selected_card_status = QLabel("Selected card: None")
-        for label in (self.trello_status, self.r2_status, self.selected_card_status):
+        for label in (self.trello_status, self.r2_status):
             label.setObjectName("integrationStatus")
-            status_row.addWidget(label)
-        status_row.addStretch()
-        setup_layout.addLayout(status_row)
-        outer.addWidget(setup_card)
+        self.trello_card_button = QPushButton("No card selected — Select card")
+        self.trello_card_button.setObjectName("trelloCardSelector")
+        self.trello_card_button.clicked.connect(self.trello_dialog.open)
+
+        self.ready_loaded = QLabel("0 images loaded")
+        self.ready_x = QLabel("0 selected for X")
+        self.ready_instagram = QLabel("0 selected for Instagram")
+        for label in (self.ready_loaded, self.ready_x, self.ready_instagram):
+            label.setObjectName("readySummary")
+        self.process_button = QPushButton("PROCESS IMAGES")
+        self.process_button.setObjectName("processButton")
+        self.process_button.setMinimumHeight(38)
+        self.process_button.clicked.connect(self.start_processing)
+
+        dashboard = QGridLayout()
+        dashboard.setContentsMargins(0, 0, 0, 0)
+        dashboard.setHorizontalSpacing(10)
+        dashboard.setVerticalSpacing(10)
+        dashboard.addWidget(self._build_source_section(), 0, 0)
+        dashboard.addWidget(self._build_image_processing_section(), 0, 1)
+        dashboard.addWidget(self._build_publishing_section(), 1, 0)
+        dashboard.addWidget(self._build_ready_section(), 1, 1)
+        dashboard.setColumnStretch(0, 1)
+        dashboard.setColumnStretch(1, 1)
+        dashboard.setRowStretch(0, 1)
+        dashboard.setRowStretch(1, 1)
+        outer.addLayout(dashboard)
 
         self.table_area = QWidget()
         table_layout = QVBoxLayout(self.table_area)
         table_layout.setContentsMargins(0, 0, 0, 0)
-        table_layout.setSpacing(10)
-
+        table_layout.setSpacing(8)
         selections = QHBoxLayout()
-        for text, column, value in (
-            ("Select all X", ImageTableModel.X, True),
-            ("Clear all X", ImageTableModel.X, False),
-            ("Select all Instagram", ImageTableModel.INSTAGRAM, True),
-            ("Clear all Instagram", ImageTableModel.INSTAGRAM, False),
+        for platform, column in (
+            ("X", ImageTableModel.X),
+            ("Instagram", ImageTableModel.INSTAGRAM),
         ):
-            button = QPushButton(text)
-            button.setProperty("role", "secondary")
-            button.clicked.connect(
-                lambda _=False, c=column, v=value: self.model.set_platform_all(c, v)
-            )
-            selections.addWidget(button)
+            selections.addWidget(self._field_label(platform))
+            for text, value in (("Select all", True), ("Clear", False)):
+                button = QPushButton(text)
+                button.setObjectName(
+                    f"{'selectAll' if value else 'clearAll'}{platform}Button"
+                )
+                button.setProperty("role", "secondary")
+                button.clicked.connect(
+                    lambda _=False, c=column, v=value: self.model.set_platform_all(c, v)
+                )
+                selections.addWidget(button)
+            selections.addSpacing(8)
         selections.addStretch()
         self.move_up_button = QPushButton("Move Up")
         self.move_down_button = QPushButton("Move Down")
@@ -238,6 +224,8 @@ class MainWindow(QMainWindow):
         table_layout.addLayout(selections)
 
         self.model = ImageTableModel(self)
+        self.model.dataChanged.connect(self._update_ready_summary)
+        self.model.modelReset.connect(self._update_ready_summary)
         self.table = QTableView()
         self.table.setModel(self.model)
         self.platform_check_delegate = PlatformCheckDelegate(self.table)
@@ -278,13 +266,14 @@ class MainWindow(QMainWindow):
         bottom = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
+        self.log.setMinimumHeight(100)
         self.log.setPlaceholderText("Processing and Trello activity will appear here.")
         self.trello_panel.activity.connect(self.log.append)
         stats_frame = QFrame()
         stats_frame.setObjectName("card")
         stats = QVBoxLayout(stats_frame)
-        stats.setContentsMargins(12, 10, 12, 12)
-        stats.setSpacing(7)
+        stats.setContentsMargins(12, 8, 12, 9)
+        stats.setSpacing(5)
         stats_title = QLabel("BATCH METRICS")
         stats_title.setObjectName("sectionTitle")
         stats.addWidget(stats_title)
@@ -292,7 +281,7 @@ class MainWindow(QMainWindow):
             QLabel("—") for _ in range(4)
         )
         metric_grid = QGridLayout()
-        metric_grid.setSpacing(7)
+        metric_grid.setSpacing(5)
         for index, (label, value) in enumerate(
             (
                 ("SOURCE", self.stat_source),
@@ -306,7 +295,8 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.log)
         bottom.addWidget(stats_frame)
         bottom.setSizes([900, 300])
-        outer.addWidget(bottom, 1)
+        bottom.setMaximumHeight(140)
+        outer.addWidget(bottom)
 
         footer = QFrame()
         footer.setObjectName("footer")
@@ -319,37 +309,98 @@ class MainWindow(QMainWindow):
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
         self.progress.setValue(0)
-        self.process_button = QPushButton("PROCESS IMAGES")
-        self.process_button.setObjectName("processButton")
-        self.process_button.setMinimumHeight(38)
-        self.process_button.clicked.connect(self.start_processing)
         processing.addWidget(self.progress_text)
         processing.addWidget(self.progress, 1)
-        processing.addWidget(self.process_button)
         outer.addWidget(footer)
         self.setCentralWidget(central)
+
         self.trello_panel.state_changed.connect(self._update_integration_status)
         self.r2_worker_url.textChanged.connect(self._update_integration_status)
         self.conflicting_controls = [
-            self.input_path,
-            self.input_browse,
-            self.output_path,
-            self.output_browse,
-            self.watermark_path,
-            self.watermark_browse,
-            self.watermark_enabled,
-            self.watermark_selector,
-            self.watermark_size,
-            self.quality,
-            self.r2_upload_enabled,
-            self.r2_worker_url,
-            self.trello_update_enabled,
-            self.table,
-            self.move_up_button,
-            self.move_down_button,
-            self.process_button,
+            self.input_path, self.input_browse, self.output_path, self.output_browse,
+            self.watermark_path, self.watermark_browse, self.watermark_enabled,
+            self.watermark_selector, self.watermark_size, self.quality,
+            self.r2_upload_enabled, self.r2_worker_url, self.trello_update_enabled,
+            self.trello_card_button, self.table, self.move_up_button,
+            self.move_down_button, self.process_button,
         ]
         self._connect_menu_actions()
+
+    @staticmethod
+    def _section(title: str, object_name: str) -> tuple[QFrame, QVBoxLayout]:
+        frame = QFrame()
+        frame.setObjectName(object_name)
+        frame.setProperty("role", "workflowCard")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(14, 10, 14, 12)
+        layout.setSpacing(6)
+        heading = QLabel(title)
+        heading.setObjectName("sectionTitle")
+        layout.addWidget(heading)
+        return frame, layout
+
+    def _build_source_section(self) -> QFrame:
+        frame, layout = self._section("SOURCE", "sourceSection")
+        form = QFormLayout()
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(6)
+        form.addRow(
+            self._field_label("Input folder"),
+            self._row_widget(self.input_path, self.input_browse),
+        )
+        form.addRow(
+            self._field_label("Output folder"),
+            self._row_widget(self.output_path, self.output_browse),
+        )
+        layout.addLayout(form)
+        return frame
+
+    def _build_image_processing_section(self) -> QFrame:
+        frame, layout = self._section("IMAGE PROCESSING", "imageProcessingSection")
+        form = QFormLayout()
+        form.setHorizontalSpacing(12)
+        form.setVerticalSpacing(6)
+        form.addRow(
+            self._field_label("Watermark folder"),
+            self._row_widget(self.watermark_path, self.watermark_browse),
+        )
+        layout.addLayout(form)
+        layout.addWidget(self.watermark_enabled)
+        controls = QGridLayout()
+        controls.setHorizontalSpacing(8)
+        for column, text in enumerate(("Design", "Size", "JPEG quality")):
+            controls.addWidget(self._field_label(text), 0, column)
+        controls.addWidget(self.watermark_selector, 1, 0)
+        controls.addWidget(self.watermark_size, 1, 1)
+        controls.addWidget(self.quality, 1, 2)
+        controls.setColumnStretch(0, 1)
+        layout.addLayout(controls)
+        return frame
+
+    def _build_publishing_section(self) -> QFrame:
+        frame, layout = self._section("PUBLISHING", "publishingSection")
+        status = QGridLayout()
+        status.addWidget(self.r2_upload_enabled, 0, 0)
+        status.addWidget(self.r2_status, 0, 1)
+        status.addWidget(self.trello_update_enabled, 1, 0)
+        status.addWidget(self.trello_status, 1, 1)
+        status.setColumnStretch(0, 1)
+        status.setColumnStretch(1, 1)
+        layout.addLayout(status)
+        layout.addWidget(self._field_label("Trello card"))
+        layout.addWidget(self.trello_card_button)
+        return frame
+
+    def _build_ready_section(self) -> QFrame:
+        frame, layout = self._section("READY TO PROCESS", "readySection")
+        summary = QGridLayout()
+        summary.addWidget(self.ready_loaded, 0, 0)
+        summary.addWidget(self.ready_x, 0, 1)
+        summary.addWidget(self.ready_instagram, 1, 0, 1, 2)
+        layout.addLayout(summary)
+        layout.addStretch()
+        layout.addWidget(self.process_button)
+        return frame
 
     def _build_menu(self) -> None:
         file_menu = self.menuBar().addMenu("&File")
@@ -398,12 +449,34 @@ class MainWindow(QMainWindow):
         self.trello_status.setText(
             f"Trello: {'Connected' if connected else 'Disconnected'}"
         )
-        card = self.trello_panel.card.currentText() if connected else ""
-        if not self.trello_panel.card.currentData():
-            card = "None"
-        self.selected_card_status.setText(f"Selected card: {card}")
+        card = self.trello_panel.card.currentText().strip()
+        self.trello_card_button.setText(
+            card
+            if self.trello_panel.card.currentData()
+            else "No card selected — Select card"
+        )
+        self._update_trello_card_button()
         configured = not bool(R2UploadService(self.r2_worker_url.text()).validation_error)
         self.r2_status.setText(f"R2: {'Ready' if configured else 'Not configured'}")
+
+    def _update_trello_card_button(self) -> None:
+        """Synchronize selector interaction without duplicating Trello state."""
+        self.trello_card_button.setEnabled(
+            self.trello_update_enabled.isChecked()
+            and self.r2_upload_enabled.isChecked()
+            and not self.batch_running
+        )
+
+    def _update_ready_summary(self, *_args) -> None:
+        """Derive workflow counts directly from the authoritative image model."""
+        items = self.model.items
+        self.ready_loaded.setText(f"{len(items)} images loaded")
+        self.ready_x.setText(
+            f"{sum(item.export_to_x for item in items)} selected for X"
+        )
+        self.ready_instagram.setText(
+            f"{sum(item.export_to_instagram for item in items)} selected for Instagram"
+        )
 
     def _move_selected_row(self, offset: int) -> None:
         rows = self.table.selectionModel().selectedRows()
@@ -524,7 +597,7 @@ class MainWindow(QMainWindow):
             del blockers
         self.quality.valueChanged.connect(self.save_settings)
         self.r2_upload_enabled.toggled.connect(self._r2_toggled)
-        self.trello_update_enabled.toggled.connect(self.save_settings)
+        self.trello_update_enabled.toggled.connect(self._trello_toggled)
         self.r2_worker_url.editingFinished.connect(self.save_settings)
         self._r2_toggled(self.r2_upload_enabled.isChecked())
         self._update_integration_status()
@@ -534,6 +607,11 @@ class MainWindow(QMainWindow):
             self.trello_update_enabled.setChecked(False)
         self.trello_update_enabled.setEnabled(enabled and not self.batch_running)
         self.r2_worker_url.setEnabled(enabled and not self.batch_running)
+        self._update_trello_card_button()
+        self.save_settings()
+
+    def _trello_toggled(self, _enabled: bool) -> None:
+        self._update_trello_card_button()
         self.save_settings()
 
     @staticmethod
