@@ -67,6 +67,9 @@ from app.utils.formatting import format_bytes
 class MainWindow(QMainWindow):
     """Functional V1 interface around the existing synchronous services."""
 
+    TABLE_MINIMUM_WIDTH = 560
+    RESULTS_MAXIMUM_HEIGHT = 110
+
     def __init__(self, settings_service: SettingsService | None = None) -> None:
         super().__init__()
         self.settings_service = settings_service or SettingsService()
@@ -251,8 +254,8 @@ class MainWindow(QMainWindow):
         for column in range(self.model.columnCount()):
             header.setSectionResizeMode(column, QHeaderView.Interactive)
         # Metadata columns start compact while the filename takes whatever
-        # space remains.  A minimum pane width keeps every standard column
-        # usable in a normal window without freezing the splitter ratio.
+        # space remains. Keep the pane minimum low enough that it cannot crowd
+        # the preview out of an even split at normal desktop widths.
         header.setSectionResizeMode(ImageTableModel.FILENAME, QHeaderView.Stretch)
         self.table.setColumnWidth(ImageTableModel.ORDER, 48)
         self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 82)
@@ -266,14 +269,18 @@ class MainWindow(QMainWindow):
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
         self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
         table_layout.addWidget(self.table)
-        self.table_area.setMinimumWidth(680)
+        self.table_area.setMinimumWidth(self.TABLE_MINIMUM_WIDTH)
         self.loading_overlay = LoadingOverlay(self.table_area)
         self.preview = PreviewPanel()
         self.image_splitter = QSplitter(Qt.Horizontal)
         self.image_splitter.addWidget(self.table_area)
         self.image_splitter.addWidget(self.preview)
-        self.image_splitter.setStretchFactor(0, 11)
-        self.image_splitter.setStretchFactor(1, 9)
+        self.image_splitter.setChildrenCollapsible(False)
+        self.image_splitter.setStretchFactor(0, 1)
+        self.image_splitter.setStretchFactor(1, 1)
+        # Give the panes an explicit initial ratio. The handle remains movable,
+        # so users can still temporarily favor either pane at narrower widths.
+        self.image_splitter.setSizes([640, 640])
         self.image_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         outer.addWidget(self.image_splitter, 1)
 
@@ -316,6 +323,7 @@ class MainWindow(QMainWindow):
         # Its children advertise useful horizontal expansion while the parent
         # layout gives all surplus height to the table and preview above.
         self.results_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.results_splitter.setMaximumHeight(self.RESULTS_MAXIMUM_HEIGHT)
         outer.addWidget(self.results_splitter, 0)
 
         footer = QFrame()
