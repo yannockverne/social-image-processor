@@ -1,50 +1,47 @@
 # Social Image Processor
 
-Social Image Processor is an offline Windows desktop application for turning PNG,
-JPG, and JPEG source images into platform-named JPEG exports. It is intended for
-photographers and creators who want predictable full-frame watermarking and smaller
-files without modifying their originals.
+Social Image Processor is a Windows desktop application for preparing image batches for social publishing.
+It turns PNG, JPG, and JPEG source images into platform-named JPEG exports, optionally applies a reusable watermark, can upload successful exports directly to Cloudflare R2 through a Worker, and can update a selected Trello card with the resulting public URLs.
 
-**V1 version:** `0.1.0`
+The application is designed around a simple workflow:
 
-## Optional Trello attachments (Milestone 2)
+**Source → Image Processing → Publishing → Ready to Process → Selection / Preview → Activity / Results**
 
-The separate Trello panel can connect and browse open **Board → List → Card**
-destinations. Choices are dependent and the application never selects a destination
-card automatically. After processing, **ATTACH TO CARD** uploads only the current
-batch's successful outputs, and only after an explicit click. Per-file upload errors
-remain in the Trello panel and never affect local exports.
+It preserves the source framing and pixel dimensions: there is no automatic crop or resize.
 
-On Windows, the API key and user token are stored as one generic credential in
-Windows Credential Manager under `SocialImageProcessor/Trello`. **Change
-credentials** replaces the saved API key and token without manual vault cleanup.
-Credentials are never
-written to `settings.json`. The implementation uses Windows' built-in credential
-API and Python's standard HTTP library, so adding `keyring` or another runtime
-dependency was not justified for this Windows-targeted application. Source builds
-on other operating systems retain the disconnected/offline state but cannot save
-Trello credentials.
-
-## V1 features
+## Current features
 
 - Non-recursive, case-insensitive scanning of PNG, JPG, and JPEG files.
-- Asynchronous thumbnails, previews, scans, and batch processing in a PySide6 UI.
-- Independent X and Instagram choices per image, including dual export.
-- Drag-and-drop image ordering with Move Up/Move Down controls; visible row order
-  drives processing, platform numbering, and Trello attachment order.
-- JPEG quality from 70 to 100 (default 92), original pixel dimensions, no crop,
-  and no resize.
-- Dynamic reusable PNG watermark design with proportional sizing and preview.
-- Safe skip when a required watermark is missing or ambiguous.
-- Collision-safe numbered names and atomic output finalization.
-- Per-file errors, progress, logs, and signed size/reduction statistics.
-- Local settings restoration and robust handling of stale paths and corrupt files.
+- Asynchronous folder scans, thumbnails, previews, and batch processing in a PySide6 desktop UI.
+- Workflow-oriented 2 × 2 dashboard for Source, Image Processing, Publishing, and Ready to Process.
+- Independent X and Instagram selection per image, including dual export.
+- Visible image ordering with Move Up / Move Down controls; table order drives processing and platform numbering.
+- JPEG quality from 70 to 100, defaulting to 92.
+- Original pixel dimensions preserved; no crop and no resize.
+- Dynamic reusable PNG watermark design with live preview and proportional sizing.
+- Watermark size adjustable from 3% to 15% in 0.5-point steps; default 8% per launch.
+- Safe handling of missing or invalid watermark selections.
+- Collision-safe numbered export names and atomic output finalization.
+- Optional direct upload of successful JPEG exports to Cloudflare R2 through a configured Worker.
+- Optional Trello integration with Board → List → Card browsing and Windows Credential Manager storage.
+- Selected Trello card displayed directly in the main Publishing block and reusable as a quick selector.
+- Optional Trello card-description synchronization using an application-owned `## URL MAKE` section.
+- Per-file export/upload errors without invalidating successful local outputs.
+- Progress, activity logging, and batch metrics for source size, output size, saved bytes, and reduction.
+- Local settings restoration with robust handling of stale paths and corrupt files.
 
-X outputs use `X_` and Instagram outputs use `Insta_`. Platform selections are
-numbered independently in visible table order; for example, the first selected
-`photo.png` creates `X_01_photo.jpg` and `Insta_01_photo.jpg`. Existing names are
-preserved; collisions gain `_2`, `_3`, and so on.
-Both profiles preserve the source framing and dimensions in V1.
+## Export naming
+
+X outputs use `X_` and Instagram outputs use `Insta_`.
+
+Platform selections are numbered independently in visible table order. For example, the first selected `photo.png` can produce:
+
+```text
+X_01_photo.jpg
+Insta_01_photo.jpg
+```
+
+Existing filenames are preserved as much as possible; collisions gain `_2`, `_3`, and so on.
 
 ## Requirements
 
@@ -53,9 +50,7 @@ Both profiles preserve the source framing and dimensions in V1.
 - PySide6 and Pillow at runtime.
 - pytest and Ruff for development checks.
 
-Dependency versions are declared in [`requirements.txt`](requirements.txt) with
-compatible ranges suitable for V1. Packaging tools are deliberately not runtime
-dependencies.
+Dependency versions are declared in [`requirements.txt`](requirements.txt).
 
 ## Install from source
 
@@ -68,8 +63,13 @@ python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-If PowerShell execution policy prevents activation, use Command Prompt and run
-`.venv\Scripts\activate.bat`, or invoke `.venv\Scripts\python.exe` directly.
+If PowerShell execution policy prevents activation, use Command Prompt and run:
+
+```text
+.venv\Scripts\activate.bat
+```
+
+or invoke `.venv\Scripts\python.exe` directly.
 
 ## Launch
 
@@ -79,35 +79,79 @@ Run from the repository root:
 python -m app.main
 ```
 
-Choose distinct input and output folders, optionally choose a watermark folder,
-select X and/or Instagram for each desired source, and click **PROCESS IMAGES**.
-Folder settings, JPEG quality, watermark state, and background color are restored
-on later launches. Watermark size is intentionally session-only and returns to
-8% on every launch.
+Typical use:
+
+1. Choose the input and output folders.
+2. Optionally choose a watermark folder and design.
+3. Select X and/or Instagram for each source image.
+4. Optionally enable R2 upload.
+5. Optionally enable Trello update and select a card.
+6. Review the preview and Ready to Process summary.
+7. Click **PROCESS IMAGES**.
+
+Folder settings, JPEG quality, watermark state, selected watermark, and publishing preferences are restored on later launches where applicable. Watermark size is intentionally session-only and returns to 8% on each launch.
 
 ## Dynamic watermark workflow
 
-Put reusable transparent PNG artwork (not a full-frame canvas) in the chosen folder.
-Valid immediate `.png` files appear alphabetically in the **Design** selector; other
-formats, directories, and corrupt images are ignored safely. Folder, enabled state,
-and selected filename are remembered.
+Put reusable transparent PNG artwork in the selected watermark folder. Valid immediate `.png` files appear alphabetically in the **Design** selector; other formats, directories, and corrupt images are ignored safely.
 
-Artwork width defaults to **8% of the geometric mean of the source dimensions**
-(`sqrt(width × height)`), preserving aspect ratio with Lanczos resampling and a 4×
-natural-size upscale cap. The **Watermark size** control can adjust this from 3% to
-15% in 0.5-point steps for the current session. It is placed bottom-right with
-**1.75%** horizontal and vertical margins relative to the corresponding source
-dimension. The entire mark remains inside the image and the source is never cropped
-or resized. Use tightly trimmed transparent assets with enough resolution for the
-largest output.
+Artwork width defaults to **8% of the geometric mean of the source dimensions** (`sqrt(width × height)`), preserving aspect ratio with Lanczos resampling and a 4× natural-size upscale cap.
 
-V1 uses one design for the whole batch and has no drag placement, opacity editor, or
-per-image selection. If watermarking is enabled with an empty, missing, or invalid
-selection, processing is blocked/skipped—never silently exported unwatermarked. Old
-settings load safely; obsolete exact-dimension fields are ignored and require a new
-design selection.
+The **Watermark size** control can adjust this from 3% to 15% in 0.5-point steps for the current session. The watermark is placed bottom-right with **1.75%** horizontal and vertical margins relative to the corresponding source dimension. The entire mark remains inside the image and the source is never cropped or resized.
 
-## Settings, offline operation, and privacy
+Use tightly trimmed transparent assets with enough source resolution for the largest intended output.
+
+The current implementation uses one watermark design for the whole batch and has no drag placement, opacity editor, or per-image watermark override. If watermarking is enabled without a usable design selection, processing does not silently export an unwatermarked replacement.
+
+## Cloudflare R2 upload
+
+R2 upload is optional and controlled by **Upload exports to R2**.
+
+The application sends each successful finalized JPEG to a configured Cloudflare Worker using HTTP `PUT`. The Worker is expected to return JSON containing a usable `publicUrl`.
+
+Uploads happen only after a local export succeeds. An R2 failure is recorded for that output but does not invalidate the local JPEG or other successful files in the batch.
+
+The Worker URL and optional remote prefix are configured through the R2 settings UI. Object keys are deterministic and based on the generated export filename.
+
+## Trello integration
+
+Trello integration is optional.
+
+The application can connect to Trello and browse open:
+
+**Board → List → Card**
+
+The main Publishing section shows the selected card. If no card is selected, the selector button opens the existing Trello configuration flow. When a card is selected, the same button displays its name and remains clickable to change the destination.
+
+On Windows, the Trello API key and token are stored together in Windows Credential Manager under:
+
+```text
+SocialImageProcessor/Trello
+```
+
+Credentials are never written to `settings.json`.
+
+The Trello service can read and update the selected card description. The application does not create cards or modify unrelated card fields.
+
+## `## URL MAKE` managed section
+
+When both R2 upload and Trello update are enabled, usable public R2 URLs are collected in export order after processing.
+
+If at least one usable URL exists, the application performs a single Trello description update for the batch and manages exactly one section:
+
+```markdown
+## URL MAKE
+https://example.invalid/X_01_photo.jpg
+https://example.invalid/Insta_01_photo.jpg
+```
+
+If the section already exists, only that managed section is replaced. Text before and after it is preserved. If the section does not exist, it is appended cleanly.
+
+If no usable upload URLs are produced, the existing Trello description and any previous `## URL MAKE` section are left untouched.
+
+This section is intended to feed the external Make / Buffer publication workflow. Social Image Processor itself does **not** call Make, Buffer, X, or Instagram APIs directly.
+
+## Settings, network use, and privacy
 
 On Windows settings live at:
 
@@ -115,32 +159,36 @@ On Windows settings live at:
 %APPDATA%\SocialImageProcessor\settings.json
 ```
 
-They do not live beside a future executable. The JSON file contains folder paths
-and non-secret preferences only. Missing, incomplete, stale, inaccessible, or
-corrupt settings recover safely.
+The JSON file contains folder paths and non-secret preferences only. Missing, incomplete, stale, inaccessible, or corrupt settings recover safely.
 
-Image processing works fully offline. The optional Trello panel makes network
-requests only after an explicit Trello panel action. There is no telemetry, Make,
-Buffer, or direct social-publishing integration.
+Local image processing works without network access.
+
+Network requests occur only when the corresponding optional integration is used:
+
+- R2 upload communicates with the configured Cloudflare Worker.
+- Trello browsing and description updates communicate with Trello.
+
+There is no telemetry and no direct social-network publishing API in the application.
 
 ## Architecture
 
 ```text
 app/main.py                 application entry point
-app/ui/                     Qt widgets and background-worker adapters
-app/services/               scanning, settings, and batch orchestration
+app/ui/                     Qt widgets, dialogs, and worker adapters
+app/services/               scanning, settings, batch orchestration, R2, Trello
 app/core/                   Qt-independent Pillow processing and naming
 app/models/                 immutable settings, image, watermark, and result models
 app/utils/                  presentation formatting helpers
-tests/                      generated-file unit, integration, and offscreen UI tests
+tests/                      unit, integration, and UI tests
 ```
 
-Dependency direction is UI → services → models/core. Core processing has no Qt
-dependency; services remain synchronously testable; full-resolution images are
-opened and released progressively. Runtime settings and image paths are supplied
-by the user or OS, so operation does not depend on the repository working directory.
+Dependency direction remains centered around UI → services → models/core. Core processing has no Qt dependency, and services are designed to remain synchronously testable.
+
+Full-resolution images are opened and released progressively. Runtime settings and image paths are supplied by the user or OS, so normal operation does not depend on the repository working directory.
 
 ## Validation
+
+Typical development checks:
 
 ```powershell
 pytest -q
@@ -158,27 +206,31 @@ $env:QT_QPA_PLATFORM = "offscreen"
 pytest -q tests/test_ui.py
 ```
 
-The native Windows workflow has also been manually validated for startup/relaunch,
-Browse scanning, restored settings, thumbnails, previews, watermark safety, both
-platform profiles, PNG-to-JPEG processing, and repeated runs.
+Native Windows testing is still important for UI geometry, startup/relaunch behavior, restored paths, thumbnails, previews, watermark rendering, and integration-state behavior.
 
 ## Current limitations
 
-V1 intentionally has no recursion, cancellation, crop editor,
-automatic Instagram 4:5 conversion, resizing, watermark scaling fallback,
-per-image watermark overrides, metadata-policy UI, direct publishing, Trello card
-creation, or checklist manipulation. It preserves raw stored dimensions
-but does not guarantee
-metadata identity or apply EXIF orientation transformations. A close request is
-rejected while background work is active; wait for it to finish.
+The application currently has no:
+
+- recursive folder scanning
+- cancellation during active background work
+- crop editor
+- automatic Instagram 4:5 conversion
+- image resize workflow
+- per-image watermark override
+- watermark drag placement or opacity editor
+- Trello card creation
+- direct Make or Buffer API calls
+- direct X or Instagram publishing
+- installer
+
+It preserves stored source dimensions but does not promise metadata identity or provide a metadata-policy UI. A close request is rejected while background work is active; wait for the current work to finish.
 
 ## Future Windows packaging
 
-A standalone executable is planned but is **not built in this phase**. The source
-entry point is packaging-safe and settings remain in `%APPDATA%`. See
-[`PACKAGING.md`](PACKAGING.md) for the recommended dedicated PyInstaller task,
-asset considerations, and validation checklist. No installer technology is part of
-V1 hardening.
+A standalone executable is planned but is not currently part of the normal source workflow.
+
+The source entry point is packaging-safe and settings remain in `%APPDATA%`. See [`PACKAGING.md`](PACKAGING.md) for the recommended PyInstaller task, asset considerations, and validation checklist.
 
 ## License
 
