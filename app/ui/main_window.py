@@ -285,6 +285,7 @@ class MainWindow(QMainWindow):
         outer.addWidget(self.image_splitter, 1)
 
         self.results_splitter = QSplitter(Qt.Horizontal)
+        self.results_splitter.setMaximumHeight(self.RESULTS_MAXIMUM_HEIGHT)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
@@ -323,7 +324,6 @@ class MainWindow(QMainWindow):
         # Its children advertise useful horizontal expansion while the parent
         # layout gives all surplus height to the table and preview above.
         self.results_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.results_splitter.setMaximumHeight(self.RESULTS_MAXIMUM_HEIGHT)
         outer.addWidget(self.results_splitter, 0)
 
         footer = QFrame()
