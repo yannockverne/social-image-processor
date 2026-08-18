@@ -33,7 +33,7 @@ QLabel#sectionTitle {{
     letter-spacing: 1px;
 }}
 QLabel#fieldLabel {{ color: #aeb5c1; font-weight: 600; }}
-QFrame#card, QWidget#previewPanel, QFrame#footer {{
+QFrame#card, QFrame[role="workflowCard"], QWidget#previewPanel, QFrame#footer {{
     background-color: #1a1e24;
     border: 1px solid #2a3039;
     border-radius: 8px;
@@ -129,6 +129,8 @@ QLabel#metricLabel {{ color: #818a97; font-size: 10px; font-weight: 700; }}
 QLabel#metricValue {{ color: #f1f3f7; font-size: 17px; font-weight: 700; }}
 QLabel#statusText {{ color: #c6ccd5; font-weight: 600; }}
 QLabel#integrationStatus {{ color: #aeb5c1; font-weight: 600; }}
+QLabel#readySummary {{ color: #cbd1da; font-weight: 600; }}
+QPushButton#trelloCardSelector {{ text-align: left; }}
 QWidget#loadingOverlay {{ background-color: rgba(17, 20, 25, 205); }}
 QLabel#loadingMessage {{ color: #f0f3f8; font-size: 14px; font-weight: 700; }}
 QProgressBar#loadingSpinner {{ min-height: 4px; max-height: 4px; }}

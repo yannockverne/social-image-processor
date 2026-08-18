@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
     QMessageBox,
+    QPushButton,
     QStyle,
     QStyleOptionViewItem,
     QTextEdit,
@@ -47,6 +48,7 @@ from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.main_window import MainWindow
+from app.ui.integration_dialogs import TrelloConfigurationDialog
 from app.ui.theme import apply_theme, configure_application_font
 from app.ui.workers import FunctionWorker
 
@@ -249,10 +251,72 @@ def test_v2_menus_and_integration_status_are_available(window) -> None:
     ]
     assert window.trello_status.text() == "Trello: Disconnected"
     assert window.r2_status.text() == "R2: Not configured"
-    assert window.selected_card_status.text() == "Selected card: None"
+    assert window.trello_card_button.text() == "No card selected — Select card"
 
     window.r2_worker_url.setText("https://worker.example/upload")
     assert window.r2_status.text() == "R2: Ready"
+
+
+def test_workflow_dashboard_has_one_primary_action(window) -> None:
+    assert window.findChild(QWidget, "sourceSection") is not None
+    assert window.findChild(QWidget, "imageProcessingSection") is not None
+    assert window.findChild(QWidget, "publishingSection") is not None
+    assert window.findChild(QWidget, "readySection") is not None
+    assert len(window.findChildren(QPushButton, "processButton")) == 1
+
+
+def test_trello_card_selector_tracks_card_and_enabled_state(window) -> None:
+    assert not window.trello_card_button.isEnabled()
+    window.r2_upload_enabled.setChecked(True)
+    window.trello_update_enabled.setChecked(True)
+    assert window.trello_card_button.isEnabled()
+
+    window.trello_panel.service = object()
+    window.trello_panel.card.addItem("Origin Series — 600i", "card-1")
+    window.trello_panel.card.setCurrentIndex(window.trello_panel.card.count() - 1)
+    window._update_integration_status()
+    assert window.trello_card_button.text() == "Origin Series — 600i"
+
+    window.trello_update_enabled.setChecked(False)
+    assert not window.trello_card_button.isEnabled()
+    assert window.trello_card_button.isVisibleTo(window)
+
+
+def test_trello_card_selector_opens_existing_dialog(application, monkeypatch) -> None:
+    opened = []
+    monkeypatch.setattr(
+        TrelloConfigurationDialog, "open", lambda self: opened.append(self)
+    )
+    window = MainWindow(EmptySettingsService())
+    window.r2_upload_enabled.setChecked(True)
+    window.trello_update_enabled.setChecked(True)
+    window.trello_card_button.click()
+    assert opened == [window.trello_dialog]
+    application.processEvents()
+    window.close()
+
+
+def test_ready_summary_derives_individual_and_bulk_selections(window) -> None:
+    window.model.replace_items(
+        [
+            ImageItem(Path("one.png"), 10, 5, 100),
+            ImageItem(Path("two.png"), 10, 5, 100),
+        ],
+        1,
+    )
+    assert window.ready_loaded.text() == "2 images loaded"
+    window.model.setData(
+        window.model.index(0, ImageTableModel.X), Qt.Checked, Qt.CheckStateRole
+    )
+    assert window.ready_x.text() == "1 selected for X"
+    window.model.set_platform_all(ImageTableModel.INSTAGRAM, True)
+    assert window.ready_instagram.text() == "2 selected for Instagram"
+    window.model.set_platform_all(ImageTableModel.X, True)
+    assert window.ready_x.text() == "2 selected for X"
+    window.model.set_platform_all(ImageTableModel.X, False)
+    window.model.set_platform_all(ImageTableModel.INSTAGRAM, False)
+    assert window.ready_x.text() == "0 selected for X"
+    assert window.ready_instagram.text() == "0 selected for Instagram"
 
 
 def test_loading_overlay_reports_and_cleans_up_preparation(window) -> None:
