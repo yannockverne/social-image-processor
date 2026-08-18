@@ -27,6 +27,7 @@ from PySide6.QtWidgets import (
     QProgressBar,
     QPushButton,
     QDoubleSpinBox,
+    QSizePolicy,
     QSpinBox,
     QSplitter,
     QTableView,
@@ -249,9 +250,12 @@ class MainWindow(QMainWindow):
         header = self.table.horizontalHeader()
         for column in range(self.model.columnCount()):
             header.setSectionResizeMode(column, QHeaderView.Fixed)
-        header.setSectionResizeMode(ImageTableModel.FILENAME, QHeaderView.Stretch)
+        # Keep filenames comfortably readable without allowing this column to
+        # consume every pixel recovered from the compact metadata columns.
+        header.setSectionResizeMode(ImageTableModel.FILENAME, QHeaderView.Interactive)
         self.table.setColumnWidth(ImageTableModel.ORDER, 55)
         self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 110)
+        self.table.setColumnWidth(ImageTableModel.FILENAME, 460)
         self.table.setColumnWidth(ImageTableModel.DIMENSIONS, 100)
         self.table.setColumnWidth(ImageTableModel.SIZE, 80)
         self.table.setColumnWidth(ImageTableModel.X, 44)
@@ -264,25 +268,26 @@ class MainWindow(QMainWindow):
         table_layout.addWidget(self.table)
         self.loading_overlay = LoadingOverlay(self.table_area)
         self.preview = PreviewPanel()
-        split = QSplitter(Qt.Horizontal)
-        split.addWidget(self.table_area)
-        split.addWidget(self.preview)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
-        split.setSizes([780, 500])
-        outer.addWidget(split, 3)
+        self.image_splitter = QSplitter(Qt.Horizontal)
+        self.image_splitter.addWidget(self.table_area)
+        self.image_splitter.addWidget(self.preview)
+        self.image_splitter.setStretchFactor(0, 11)
+        self.image_splitter.setStretchFactor(1, 9)
+        self.image_splitter.setSizes([704, 576])
+        outer.addWidget(self.image_splitter, 3)
 
         bottom = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(90)
+        self.log.setMinimumHeight(80)
+        self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.log.setPlaceholderText("Processing and Trello activity will appear here.")
         self.trello_panel.activity.connect(self.log.append)
         stats_frame = QFrame()
         stats_frame.setObjectName("card")
         stats = QVBoxLayout(stats_frame)
-        stats.setContentsMargins(10, 5, 10, 5)
-        stats.setSpacing(3)
+        stats.setContentsMargins(8, 2, 8, 2)
+        stats.setSpacing(1)
         stats_title = QLabel("BATCH METRICS")
         stats_title.setObjectName("sectionTitle")
         stats.addWidget(stats_title)
@@ -290,7 +295,9 @@ class MainWindow(QMainWindow):
             QLabel("—") for _ in range(4)
         )
         metric_grid = QGridLayout()
-        metric_grid.setSpacing(3)
+        metric_grid.setContentsMargins(0, 0, 0, 0)
+        metric_grid.setHorizontalSpacing(3)
+        metric_grid.setVerticalSpacing(1)
         for index, (label, value) in enumerate(
             (
                 ("SOURCE", self.stat_source),
@@ -304,7 +311,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.log)
         bottom.addWidget(stats_frame)
         bottom.setSizes([900, 300])
-        bottom.setMaximumHeight(110)
+        bottom.setMaximumHeight(90)
         outer.addWidget(bottom)
 
         footer = QFrame()
@@ -515,7 +522,7 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("metric")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(8, 2, 8, 3)
+        layout.setContentsMargins(6, 0, 6, 1)
         layout.setSpacing(0)
         label = QLabel(label_text)
         label.setObjectName("metricLabel")

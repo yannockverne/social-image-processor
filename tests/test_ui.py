@@ -25,6 +25,7 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHeaderView,
     QMessageBox,
     QPushButton,
     QStyle,
@@ -62,6 +63,17 @@ def process_deferred_scan(application) -> None:
     """Run both the scan-source timer and the coalesced dispatch timer."""
     application.processEvents()
     application.processEvents()
+
+
+def test_image_and_results_layout_prioritizes_preview_space(window) -> None:
+    header = window.table.horizontalHeader()
+
+    assert header.sectionResizeMode(ImageTableModel.FILENAME) == QHeaderView.Interactive
+    assert header.sectionResizeMode(ImageTableModel.WATERMARK) == QHeaderView.Fixed
+    assert window.table.columnWidth(ImageTableModel.FILENAME) == 460
+    assert window.image_splitter.stretchFactor(0) == 11
+    assert window.image_splitter.stretchFactor(1) == 9
+    assert window.log.minimumHeight() == 80
 
 
 def test_theme_uses_valid_application_font_for_default_text_size(application) -> None:

@@ -126,7 +126,7 @@ QLabel#previewImage {{
 QLabel#previewStatus {{ color: #8e97a5; font-size: 12px; }}
 QFrame#metric {{ background-color: #15191e; border: 1px solid #292f38; border-radius: 6px; }}
 QLabel#metricLabel {{ color: #818a97; font-size: 10px; font-weight: 700; }}
-QLabel#metricValue {{ color: #f1f3f7; font-size: 17px; font-weight: 700; }}
+QLabel#metricValue {{ color: #f1f3f7; font-size: 15px; font-weight: 700; }}
 QLabel#statusText {{ color: #c6ccd5; font-weight: 600; }}
 QLabel#integrationStatus {{ color: #aeb5c1; font-weight: 600; }}
 QLabel#readySummary {{ color: #cbd1da; font-weight: 600; }}
