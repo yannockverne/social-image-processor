@@ -1,658 +1,380 @@
-# Social Image Processor — V1 Specification
+# Social Image Processor — Current Specification
 
-## 1. Project overview
+This document describes the current implemented behavior of Social Image Processor.
+For user-facing instructions, see `README.md`. For architectural notes, see
+`PROJECT_CONTEXT.md`. For publication handoff details, see `PUBLISHING_WORKFLOW.md`.
 
-**Project name:** Social Image Processor  
-**Repository:** `yannockverne/social-image-processor`
+## 1. Purpose
 
-Social Image Processor is a Windows desktop application used to prepare image exports for social-media publishing workflows.
+Social Image Processor is a Windows desktop tool for preparing edited screenshots and
+other images for a social publishing workflow.
 
-Typical workflow:
+The application:
 
-Photoshop export  
-→ Social Image Processor  
-→ optimized JPG files with optional watermark  
-→ publishing workflow through Make / Buffer / social networks
+- scans a local source folder;
+- lets the user select X and/or Instagram exports per image;
+- optionally applies one reusable transparent PNG watermark design;
+- exports platform-named JPEG files without cropping or resizing;
+- optionally uploads successful exports to Cloudflare R2 through a Worker;
+- optionally updates one selected Trello card description with the resulting public URLs.
 
-Primary goals:
-
-- reduce image file size before transfer through Make;
-- prevent publishing images without the intended watermark;
-- generate platform-specific X and Instagram exports;
-- preserve the original source files at all times;
-- keep the workflow fast and visually predictable.
-
----
+The downstream Make / Buffer workflow is external to the application.
 
 ## 2. Target platform and stack
 
-Use:
-
+- Windows 10 / Windows 11
 - Python 3.12+
-- PySide6 for the desktop GUI
-- Pillow for image processing
-- pytest for automated tests
+- PySide6
+- Pillow
+- pytest
+- Ruff
 
-Target:
+The source entry point is:
 
-- Windows 10
-- Windows 11
-
-The application should later be packageable as a standalone `.exe` with PyInstaller.
-
-Do not use Electron or a web frontend.
-
-The application must work fully offline and must not require any account, cloud service, external API, telemetry, or network access.
-
----
-
-## 3. Architecture
-
-Keep the code modular and maintainable.
-
-Suggested structure:
-
-```text
-social-image-processor/
-├─ app/
-│  ├─ __init__.py
-│  ├─ main.py
-│  ├─ ui/
-│  ├─ core/
-│  ├─ models/
-│  ├─ services/
-│  └─ utils/
-├─ tests/
-├─ assets/
-├─ README.md
-├─ requirements.txt
-└─ .gitignore
+```powershell
+python -m app.main
 ```
 
-This structure may be adjusted if a cleaner architecture is justified.
+A committed PyInstaller one-folder build path is also available through
+`build_windows.ps1` and `social_image_processor.spec`.
 
-Do not build the application as one large monolithic Python file.
-
----
-
-## 4. Main workflow
-
-The user selects:
-
-1. an **Input folder** containing source images;
-2. an **Output folder** receiving processed files;
-3. a **Watermark folder** containing transparent full-frame watermark PNG files.
-
-The application scans the input directory and displays supported images in a graphical list.
-
-Each image can independently be marked for:
-
-- X export;
-- Instagram export.
-
-The same source image may be exported to both platforms.
-
-Example:
+## 3. Main workflow
 
 ```text
-Source:
-M50_001.png
-
-Outputs:
-X_M50_001.jpg
-Insta_M50_001.jpg
-```
-
-The source image must **never** be modified.
-
----
-
-## 5. Main window
-
-Top controls:
-
-```text
-Input Folder:      [ path ] [ Browse ]
-Output Folder:     [ path ] [ Browse ]
-Watermark Folder:  [ path ] [ Browse ]
-```
-
-Remember the last selected folders between launches.
-
-Below the folder controls, display the image list.
-
-Also provide a global checkbox:
-
-```text
-[✓] Apply watermark
-```
-
-A prominent processing button should be available:
-
-```text
+SOURCE
+Input folder / Output folder
+        ↓
+IMAGE PROCESSING
+Watermark folder / Design / Size / JPEG quality
+        ↓
+PUBLISHING
+Optional R2 upload / Optional Trello update / Card selection
+        ↓
+READY TO PROCESS
+Loaded / X / Instagram counts
+        ↓
+IMAGE TABLE + PREVIEW
+        ↓
 PROCESS IMAGES
+        ↓
+ACTIVITY + BATCH METRICS
 ```
 
----
+Local image processing must remain usable without R2 or Trello.
 
-## 6. Image list
+## 4. Source scanning
 
-Display one row per source image.
+Supported source extensions are PNG, JPG, and JPEG.
 
-Columns:
+Scanning is:
 
-- Thumbnail
-- Filename
-- Dimensions
-- File size
-- X checkbox
-- Instagram checkbox
-- Watermark status
+- non-recursive;
+- case-insensitive by extension;
+- asynchronous through the Qt worker pool;
+- resilient to invalid or unreadable files.
 
-Example:
+Source files are never modified.
+
+The image model stores metadata and user selections, not every full-resolution raster.
+
+## 5. Image table and ordering
+
+The table exposes:
+
+- order;
+- thumbnail;
+- filename;
+- dimensions;
+- file size;
+- X selection;
+- Instagram selection;
+- watermark availability.
+
+The user can select or clear all X/Instagram choices and move rows up or down.
+Visible table order drives platform numbering.
+
+Selections default off.
+
+## 6. Export profiles and naming
+
+Two built-in export platforms are supported:
+
+- X → `X_`
+- Instagram → `Insta_`
+
+Both produce JPEG files, preserve source dimensions, and do not crop.
+
+Platform numbering is independent and zero-padded:
 
 ```text
-Preview | Filename     | Dimensions | Size    | X | Insta | Watermark
------------------------------------------------------------------------
-[img]   | M50_001.png | 3440x1440  | 14 MB   | ✓ |       | ✓
-[img]   | M50_002.png | 4000x5000  | 11 MB   |   | ✓     | ✓
-[img]   | M50_003.png | 7680x4320  | 18 MB   | ✓ | ✓     | ⚠ Missing
+X_01.jpg
+X_02.jpg
+Insta_01.jpg
 ```
 
-Supported source formats for V1:
-
-- PNG
-- JPG
-- JPEG
-
-Generate thumbnails asynchronously when practical so loading a folder containing large screenshots does not freeze the GUI.
-
-Avoid loading full-resolution images solely to create the visible thumbnail.
-
-Selecting a row should update the preview panel.
-
-Provide global controls:
+If a generated name already exists, collision suffixes are added:
 
 ```text
-Select all X
-Clear all X
-
-Select all Instagram
-Clear all Instagram
+X_01.jpg
+X_01_2.jpg
+X_01_3.jpg
 ```
 
----
+Output allocation is case-insensitive to match Windows filesystem expectations.
 
-## 7. Platform export profiles
+## 7. JPEG processing
 
-Create separate profiles for X and Instagram.
+JPEG quality defaults to 92 and is configurable from 70 to 100.
 
-### X profile — V1 defaults
+PNG transparency is flattened onto the configured background color, which defaults to
+black.
 
-- Output format: JPG
-- JPEG quality: 92
-- Keep original dimensions
-- No automatic crop
-- Filename prefix: `X_`
+Source dimensions and framing are preserved.
 
-Example:
+The processor does not apply EXIF orientation transforms. EXIF metadata is not copied;
+a safe ICC profile may be retained when available.
+
+Final files are written through a same-directory temporary file and atomically finalized.
+A source or platform failure must not stop unrelated outputs.
+
+## 8. Watermark system
+
+Watermarks are reusable transparent PNG artwork assets.
+
+The selected watermark folder is scanned non-recursively and valid PNG files are listed
+in predictable filename order.
+
+One design is selected globally for the batch and persisted by filename.
+
+Default rendered width is based on 8% of the geometric mean of the source dimensions:
 
 ```text
-X_M50_001.jpg
+sqrt(width × height) × 0.08
 ```
 
-### Instagram profile — V1 defaults
+The UI allows 3% to 15% in 0.5-point increments. Watermark size is session-only and
+returns to 8% on launch.
 
-- Output format: JPG
-- JPEG quality: 92
-- Preserve original dimensions in V1
-- No automatic crop
-- Filename prefix: `Insta_`
+Rendering rules:
 
-Example:
+- aspect ratio preserved;
+- Lanczos resampling;
+- maximum 4× natural asset-width upscale;
+- bottom-right placement;
+- 1.75% horizontal and vertical margins;
+- source image never cropped or resized.
+
+If watermarking is enabled but the selected design is unavailable, processing must fail
+validation or skip safely. It must never silently export an unwatermarked replacement.
+
+There is no per-image design override, drag placement, or opacity editor.
+
+## 9. Preview
+
+Selecting a table row renders a scaled preview asynchronously.
+
+The preview:
+
+- preserves aspect ratio;
+- displays the dynamic watermark when enabled and available;
+- reports missing watermark state;
+- is visual confirmation only and does not replace the full-resolution batch path.
+
+## 10. Optional Cloudflare R2 upload
+
+R2 upload is controlled by `Upload exports to R2`.
+
+For each successful local JPEG, `R2UploadService`:
+
+- validates the configured Worker URL;
+- builds a deterministic object key;
+- performs HTTP `PUT`;
+- expects JSON containing a usable `publicUrl`;
+- returns an isolated success/failure result.
+
+R2 failures do not invalidate successful local JPEG exports.
+
+If Trello update is enabled, the selected Trello card ID is used as the R2 prefix.
+Otherwise the configured remote prefix is used.
+
+## 11. Optional Trello integration
+
+Trello is optional and explicitly configured.
+
+The user can browse:
 
 ```text
-Insta_M50_001.jpg
+Board → List → Card
 ```
 
-The application must **never automatically crop an image**.
+The application never guesses the destination card.
 
-Image framing is considered an intentional artistic choice.
-
-If an image does not match a preferred Instagram aspect ratio, preserve the source framing in V1.
-
----
-
-## 8. JPEG conversion
-
-Default JPEG quality:
+On Windows, Trello API credentials are stored in Windows Credential Manager under:
 
 ```text
-92
+SocialImageProcessor/Trello
 ```
 
-Expose JPEG quality in the settings UI.
+Credentials are never stored in `settings.json`.
 
-Recommended selectable range:
+The main Publishing block shows the current Trello connection state and selected card.
+The card selector opens the existing Trello configuration dialog and remains clickable
+after selection.
+
+Trello update requires R2 upload to be enabled, an active Trello connection, and a
+selected card.
+
+## 12. Trello description handoff
+
+When R2 and Trello update are enabled, the batch collects usable public URLs in export
+order.
+
+At most one Trello description update is performed per batch.
+
+The application owns exactly one managed section:
+
+```markdown
+## URL MAKE
+https://example.invalid/X_01.jpg
+https://example.invalid/Insta_01.jpg
+```
+
+Rules:
+
+- replace only the existing `## URL MAKE` section when present;
+- append it when absent;
+- preserve text before and after it;
+- exclude failed uploads and malformed URLs;
+- preserve URL order;
+- leave the existing Trello description untouched when no usable URL exists.
+
+The application does not attach image binaries to Trello.
+
+## 13. Settings
+
+Settings are stored as JSON at:
 
 ```text
-70–100
+%APPDATA%\SocialImageProcessor\settings.json
 ```
 
-When converting a PNG with transparency to JPEG, flatten transparency against a configurable background.
-
-Default background:
-
-```text
-black
-```
-
-Do not alter source dimensions unless a future explicitly enabled profile requires it.
-
----
-
-# 9. Watermark system
-
-Watermarks are reusable transparent PNG artwork assets rather than full-frame canvases.
-The selected folder is scanned non-recursively for valid `.png` files and displayed in
-predictable filename order. Unsupported, corrupt, and nested files are ignored safely.
-
-One globally selected design is persisted by filename. It is rendered at 9% of source
-width while preserving aspect ratio, using Lanczos resampling and a maximum upscale of
-four times natural asset width. Placement is bottom-right with horizontal and vertical
-margins equal to 1.75% of the corresponding source dimension. The mark remains inside
-the source; source dimensions and framing never change.
-
-When watermarking is enabled, an absent folder, empty catalog, missing selection, or
-invalid/unavailable selected asset must block or skip processing clearly. It must never
-silently export without the requested watermark. V1 has no opacity editor, manual
-positioning, or per-image watermark selection. Legacy exact-resolution settings are
-ignored safely and require the user to select a reusable design.
-
-## 10. Preview panel
-
-Add a preview area.
-
-When an image row is selected:
-
-- display a scaled preview of the source image;
-- if watermarking is enabled and an exact matching watermark exists, display the composited result;
-- if no matching watermark exists, clearly indicate that the watermark is missing.
-
-The preview does not need to use full-resolution rendering.
-
-Its purpose is visual confirmation.
-
-The preview should preserve the source aspect ratio.
-
----
-
-## 11. Output file handling
-
-Never overwrite source files.
-
-All exports go to the selected Output folder.
-
-If an output filename already exists, create a numbered filename.
-
-Example:
-
-```text
-X_M50_001.jpg
-X_M50_001_2.jpg
-X_M50_001_3.jpg
-```
-
-This behavior may become configurable later.
-
----
-
-## 12. Processing behavior
-
-When the user clicks:
-
-```text
-PROCESS IMAGES
-```
-
-For every listed source image:
-
-- if X is checked, create an X export;
-- if Instagram is checked, create an Instagram export;
-- if both are checked, create both;
-- if neither is checked, ignore the image.
-
-If watermarking is enabled:
-
-- require an exact-resolution watermark;
-- composite it pixel-for-pixel;
-- skip images that lack a matching watermark.
-
-Then convert the result to JPEG using the relevant platform profile.
-
-One failed image must not stop the batch.
-
----
-
-## 13. Background processing and responsiveness
-
-Processing must not freeze the GUI.
-
-Use an appropriate PySide6 worker mechanism such as:
-
-- QThread;
-- QThreadPool / QRunnable;
-- another clean Qt-compatible worker architecture.
-
-Display a progress bar and progress text.
-
-Example:
-
-```text
-Processing image 3 / 12
-```
-
-Thumbnail generation should also avoid blocking the UI for large image folders where practical.
-
----
-
-## 14. Processing log
-
-Include a visible log panel.
-
-Example:
-
-```text
-M50_001.png
-→ X_M50_001.jpg
-14.2 MB → 2.4 MB
-
-M50_002.png
-→ Insta_M50_002.jpg
-11.8 MB → 1.9 MB
-
-SKIPPED M50_003.png
-No exact 7680x4320 watermark found.
-```
-
-Errors should be clear and human-readable.
-
-Examples:
-
-- corrupted source image;
-- output permission denied;
-- missing watermark;
-- ambiguous watermark;
-- failed JPEG write.
-
-A failure must not crash the entire application.
-
----
-
-## 15. Size statistics
-
-After processing, display:
-
-- total source size for processed source images;
-- total generated output size;
-- bytes saved;
-- percentage reduction.
-
-Example:
-
-```text
-Source:
-126.4 MB
-
-Output:
-22.1 MB
-
-Saved:
-104.3 MB
-
-Reduction:
-82.5 %
-```
-
-Only final post-processing statistics are required for V1.
-
-Estimated output size before processing is optional and not required.
-
----
-
-## 16. Settings
-
-Store local settings as JSON.
-
-Suggested location:
-
-```text
-%APPDATA%/SocialImageProcessor/settings.json
-```
-
-Store at minimum:
+Persisted non-secret state includes:
 
 - input directory;
 - output directory;
 - watermark directory;
 - JPEG quality;
-- watermark enabled.
+- watermark enabled state;
+- background color;
+- selected watermark filename;
+- R2 enabled state;
+- R2 Worker URL;
+- R2 remote prefix;
+- Trello update enabled state.
 
-Optionally store:
+Invalid, missing, stale, or corrupt settings must not prevent application launch.
 
-- window size;
-- window position;
-- other harmless UI preferences.
+## 14. UI structure and resize behavior
 
-Do not store secrets.
-
-If the settings file is absent or corrupted, restore sensible defaults without crashing.
-
----
-
-## 17. Error handling
-
-Gracefully handle:
-
-- invalid image files;
-- corrupted images;
-- missing folders;
-- inaccessible folders;
-- missing watermark files;
-- duplicate watermark dimensions;
-- unsupported file formats;
-- permission errors;
-- output write errors.
-
-A single broken file must not stop the full batch.
-
----
-
-## 18. Performance
-
-Typical source images may include:
+The main window uses a dark workflow-oriented 2 × 2 dashboard:
 
 ```text
-3440x1440
-4000x5000
-3000x4000
-7680x4320
-8K screenshots
+SOURCE                  IMAGE PROCESSING
+PUBLISHING              READY TO PROCESS
 ```
 
-PNG files may be 10–20 MB or larger.
+Below it, the image table and preview use an approximately even horizontal splitter.
+The image region is the primary vertically expanding area.
 
-Avoid unnecessary copies of full-resolution images in memory.
+Activity and Batch Metrics sit in a structural parent container capped at 110 px. The
+inner splitter controls only their horizontal division. This avoids native Windows Qt
+behavior where a `QSplitter` can lose its own maximum-height constraint when shown.
 
-Do not keep every full-resolution source image loaded simultaneously.
+## 15. Background work and safety
 
-Open/process/release images progressively during batch operations.
+Folder scans, thumbnails, previews, Trello calls, and batch processing use Qt worker
+infrastructure so the GUI remains responsive.
 
----
+Stale asynchronous scan/preview results are ignored through generation tracking.
 
-## 19. Automated tests
+The application rejects close requests while background work is active.
 
-Use pytest.
+There is no cancellation mechanism for an active batch.
 
-At minimum create tests for non-GUI core behavior:
+## 16. Metrics and logging
 
-- watermark discovery;
-- exact dimension matching;
-- missing watermark detection;
-- duplicate watermark dimension handling;
-- full-frame watermark alpha compositing;
-- output filename generation;
-- duplicate output filename numbering;
-- PNG → JPEG conversion;
-- profile selection;
-- source file remains unchanged.
+The UI reports:
 
-Tests should create temporary generated images instead of requiring user assets.
+- per-export activity;
+- R2 upload activity;
+- Trello synchronization outcome;
+- processing progress;
+- source bytes;
+- output bytes;
+- bytes saved;
+- reduction percentage.
 
----
+Network failures are isolated from local exports.
 
-## 20. README
+## 17. Packaging
 
-Create a useful `README.md` covering:
+A one-folder PyInstaller build is supported through:
 
-- project purpose;
-- current features;
-- supported input formats;
-- requirements;
-- dependency installation;
-- how to launch the application;
-- how to run tests;
-- watermark workflow;
-- expected full-frame watermark behavior;
-- architecture overview;
-- future PyInstaller packaging instructions.
-
-Suggested run command:
-
-```bash
-python -m app.main
+```powershell
+.\build_windows.ps1
 ```
 
-Suggested test command:
+Expected executable:
 
-```bash
-pytest
+```text
+dist\SocialImageProcessor\SocialImageProcessor.exe
 ```
 
----
+The entire distribution folder must be shipped. There is no installer and no one-file
+build requirement. See `PACKAGING.md`.
 
-## 21. UI style
+## 18. Out of scope
 
-Use a clean, modern, dark-friendly interface.
+The application currently does not provide:
 
-Do not spend excessive development time on custom styling during the first implementation.
+- recursive scanning;
+- crop editing;
+- automatic Instagram 4:5 conversion;
+- image resizing;
+- per-image watermark overrides;
+- watermark drag placement or opacity editing;
+- direct Make API integration;
+- direct Buffer API integration;
+- direct X or Instagram publishing;
+- Trello card creation;
+- Trello checklist manipulation;
+- installer technology.
 
-Functionality and reliability take priority over visual polish.
+## 19. Non-negotiable rules
 
-Prefer standard PySide6 layouts and widgets.
-
-The UI should work comfortably at:
-
-- 1920×1080;
-- 3440×1440.
-
-Avoid assumptions that require an ultrawide monitor.
-
----
-
-## 22. Non-negotiable design rules
-
-1. The source image is **never modified**.
+1. Source files are never modified.
 2. No automatic crop.
-3. No destructive operation on source files.
-4. All generated files go to the selected Output folder.
-5. Watermark V1 uses a selected reusable transparent PNG artwork asset.
-6. Watermark sizing and margins are deterministic proportions of source dimensions.
-7. Automatic watermark placement is bottom-right.
-8. If watermarking is enabled and no valid selection exists, **skip the affected image**.
-9. Application works offline.
-10. No telemetry.
-11. No network dependency.
-12. No account/login requirement.
+3. No automatic resize.
+4. Local exports remain valid even if optional network integrations fail.
+5. Watermarking never silently falls back to unwatermarked output when enabled.
+6. Trello destination selection is explicit.
+7. Only the managed `## URL MAKE` section may be edited automatically.
+8. No telemetry.
+9. Local-only processing remains supported.
+10. Automated tests must cover functional and UI regressions.
 
----
+## 20. Validation
 
-## 23. Future features — not part of V1
+Normal development validation:
 
-The architecture may allow these later, but do not implement them in the initial V1:
+```powershell
+pytest -q
+python -m compileall -q app tests
+ruff check app tests
+ruff format --check app tests
+git diff --check
+python -m pip check
+```
 
-- drag and drop;
-- custom crop editor;
-- automatic Instagram 4:5 preparation;
-- user-defined platform presets;
-- per-image watermark override;
-- same-ratio watermark scaling fallback;
-- alternative watermark positions;
-- EXIF stripping toggle;
-- WebP / AVIF output;
-- advanced batch renaming;
-- before/after image comparison;
-- Make API integration;
-- Buffer API integration;
-- direct social-network publishing;
-- Photoshop integration.
-
-Do not over-engineer V1 around future features.
-
----
-
-# 24. Definition of done for the first functional V1
-
-The first functional V1 should provide:
-
-- clean project structure;
-- working PySide6 main window;
-- Input / Output / Watermark folder selection;
-- persistent folder settings;
-- image scanning;
-- asynchronous or non-blocking thumbnail loading;
-- thumbnails;
-- file dimensions and source size display;
-- X checkbox per image;
-- Instagram checkbox per image;
-- global selection/clear controls;
-- global watermark checkbox;
-- automatic exact-resolution watermark discovery;
-- visible missing-watermark status;
-- preview with watermark when available;
-- JPEG conversion;
-- full-frame pixel-perfect watermark compositing;
-- safe skip behavior when watermark is missing;
-- background batch processing;
-- progress bar;
-- processing log;
-- output size statistics;
-- duplicate output filename protection;
-- robust error handling;
-- local JSON settings;
-- automated core tests;
-- README.
-
----
-
-# 25. Implementation approach
-
-Do not implement the entire application as one giant unreviewable change.
-
-Before coding:
-
-1. Read this specification completely.
-2. Inspect the repository.
-3. Propose an implementation plan divided into sensible phases.
-4. Identify any ambiguity or technical concern that materially affects the V1 design.
-5. Do **not** modify files until the plan has been reviewed.
-
-Once implementation is authorized:
-
-1. implement one coherent phase at a time;
-2. run relevant tests after each phase;
-3. keep responsibilities separated between UI and image-processing logic;
-4. fix failures before moving on;
-5. report what changed and how it was validated.
-
-The specification in this file is the functional source of truth for V1.
+Native Windows validation remains authoritative for platform-specific Qt geometry and
+packaged executable behavior.
