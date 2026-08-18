@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QHeaderView,
     QLabel,
     QLineEdit,
     QMainWindow,
@@ -245,12 +246,18 @@ class MainWindow(QMainWindow):
         self.table.setShowGrid(False)
         self.table.verticalHeader().setVisible(False)
         self.table.verticalHeader().setDefaultSectionSize(76)
+        header = self.table.horizontalHeader()
+        for column in range(self.model.columnCount()):
+            header.setSectionResizeMode(column, QHeaderView.Fixed)
+        header.setSectionResizeMode(ImageTableModel.FILENAME, QHeaderView.Stretch)
         self.table.setColumnWidth(ImageTableModel.ORDER, 55)
         self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 110)
-        self.table.setColumnWidth(ImageTableModel.FILENAME, 230)
+        self.table.setColumnWidth(ImageTableModel.DIMENSIONS, 100)
+        self.table.setColumnWidth(ImageTableModel.SIZE, 80)
         self.table.setColumnWidth(ImageTableModel.X, 44)
         self.table.setColumnWidth(ImageTableModel.INSTAGRAM, 100)
-        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setColumnWidth(ImageTableModel.WATERMARK, 130)
+        header.setStretchLastSection(False)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
         self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
@@ -260,20 +267,22 @@ class MainWindow(QMainWindow):
         split = QSplitter(Qt.Horizontal)
         split.addWidget(self.table_area)
         split.addWidget(self.preview)
-        split.setSizes([850, 430])
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
+        split.setSizes([780, 500])
         outer.addWidget(split, 3)
 
         bottom = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(100)
+        self.log.setMinimumHeight(90)
         self.log.setPlaceholderText("Processing and Trello activity will appear here.")
         self.trello_panel.activity.connect(self.log.append)
         stats_frame = QFrame()
         stats_frame.setObjectName("card")
         stats = QVBoxLayout(stats_frame)
-        stats.setContentsMargins(12, 8, 12, 9)
-        stats.setSpacing(5)
+        stats.setContentsMargins(10, 5, 10, 5)
+        stats.setSpacing(3)
         stats_title = QLabel("BATCH METRICS")
         stats_title.setObjectName("sectionTitle")
         stats.addWidget(stats_title)
@@ -281,7 +290,7 @@ class MainWindow(QMainWindow):
             QLabel("—") for _ in range(4)
         )
         metric_grid = QGridLayout()
-        metric_grid.setSpacing(5)
+        metric_grid.setSpacing(3)
         for index, (label, value) in enumerate(
             (
                 ("SOURCE", self.stat_source),
@@ -295,7 +304,7 @@ class MainWindow(QMainWindow):
         bottom.addWidget(self.log)
         bottom.addWidget(stats_frame)
         bottom.setSizes([900, 300])
-        bottom.setMaximumHeight(140)
+        bottom.setMaximumHeight(110)
         outer.addWidget(bottom)
 
         footer = QFrame()
@@ -506,8 +515,8 @@ class MainWindow(QMainWindow):
         frame = QFrame()
         frame.setObjectName("metric")
         layout = QVBoxLayout(frame)
-        layout.setContentsMargins(10, 7, 10, 8)
-        layout.setSpacing(1)
+        layout.setContentsMargins(8, 2, 8, 3)
+        layout.setSpacing(0)
         label = QLabel(label_text)
         label.setObjectName("metricLabel")
         value.setObjectName("metricValue")
