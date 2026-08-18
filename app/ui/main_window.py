@@ -249,23 +249,24 @@ class MainWindow(QMainWindow):
         self.table.verticalHeader().setDefaultSectionSize(76)
         header = self.table.horizontalHeader()
         for column in range(self.model.columnCount()):
-            header.setSectionResizeMode(column, QHeaderView.Fixed)
-        # Keep filenames comfortably readable without allowing this column to
-        # consume every pixel recovered from the compact metadata columns.
-        header.setSectionResizeMode(ImageTableModel.FILENAME, QHeaderView.Interactive)
-        self.table.setColumnWidth(ImageTableModel.ORDER, 55)
-        self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 110)
-        self.table.setColumnWidth(ImageTableModel.FILENAME, 460)
-        self.table.setColumnWidth(ImageTableModel.DIMENSIONS, 100)
-        self.table.setColumnWidth(ImageTableModel.SIZE, 80)
-        self.table.setColumnWidth(ImageTableModel.X, 44)
-        self.table.setColumnWidth(ImageTableModel.INSTAGRAM, 100)
-        self.table.setColumnWidth(ImageTableModel.WATERMARK, 130)
+            header.setSectionResizeMode(column, QHeaderView.Interactive)
+        # Metadata columns start compact while the filename takes whatever
+        # space remains.  A minimum pane width keeps every standard column
+        # usable in a normal window without freezing the splitter ratio.
+        header.setSectionResizeMode(ImageTableModel.FILENAME, QHeaderView.Stretch)
+        self.table.setColumnWidth(ImageTableModel.ORDER, 48)
+        self.table.setColumnWidth(ImageTableModel.THUMBNAIL, 82)
+        self.table.setColumnWidth(ImageTableModel.DIMENSIONS, 90)
+        self.table.setColumnWidth(ImageTableModel.SIZE, 64)
+        self.table.setColumnWidth(ImageTableModel.X, 38)
+        self.table.setColumnWidth(ImageTableModel.INSTAGRAM, 78)
+        self.table.setColumnWidth(ImageTableModel.WATERMARK, 92)
         header.setStretchLastSection(False)
         self.table.selectionModel().selectionChanged.connect(self._selection_changed)
         self.move_up_button.clicked.connect(lambda: self._move_selected_row(-1))
         self.move_down_button.clicked.connect(lambda: self._move_selected_row(1))
         table_layout.addWidget(self.table)
+        self.table_area.setMinimumWidth(680)
         self.loading_overlay = LoadingOverlay(self.table_area)
         self.preview = PreviewPanel()
         self.image_splitter = QSplitter(Qt.Horizontal)
@@ -273,14 +274,12 @@ class MainWindow(QMainWindow):
         self.image_splitter.addWidget(self.preview)
         self.image_splitter.setStretchFactor(0, 11)
         self.image_splitter.setStretchFactor(1, 9)
-        self.image_splitter.setSizes([704, 576])
         self.image_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         outer.addWidget(self.image_splitter, 1)
 
         self.results_splitter = QSplitter(Qt.Horizontal)
         self.log = QTextEdit()
         self.log.setReadOnly(True)
-        self.log.setMinimumHeight(80)
         self.log.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.log.setPlaceholderText("Processing and Trello activity will appear here.")
         self.trello_panel.activity.connect(self.log.append)
@@ -311,12 +310,12 @@ class MainWindow(QMainWindow):
         stats.addLayout(metric_grid)
         self.results_splitter.addWidget(self.log)
         self.results_splitter.addWidget(stats_frame)
-        self.results_splitter.setSizes([900, 300])
+        self.results_splitter.setStretchFactor(0, 3)
+        self.results_splitter.setStretchFactor(1, 1)
         # This row is a compact summary, not another vertical work surface.
         # Its children advertise useful horizontal expansion while the parent
         # layout gives all surplus height to the table and preview above.
-        self.results_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.results_splitter.setMaximumHeight(90)
+        self.results_splitter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         outer.addWidget(self.results_splitter, 0)
 
         footer = QFrame()
@@ -526,6 +525,7 @@ class MainWindow(QMainWindow):
     def _metric(label_text: str, value: QLabel) -> QFrame:
         frame = QFrame()
         frame.setObjectName("metric")
+        frame.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(6, 0, 6, 1)
         layout.setSpacing(0)
