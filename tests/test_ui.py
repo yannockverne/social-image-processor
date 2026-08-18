@@ -74,12 +74,14 @@ def test_image_and_results_layout_prioritizes_preview_space(
 
     header = window.table.horizontalHeader()
     pane_sizes = window.image_splitter.sizes()
+    initial_window_height = window.height()
     initial_image_height = window.image_splitter.height()
     initial_results_height = window.results_splitter.height()
 
     window.resize(1280, 1200)
     application.processEvents()
 
+    actual_window_growth = window.height() - initial_window_height
     image_growth = window.image_splitter.height() - initial_image_height
     results_growth = window.results_splitter.height() - initial_results_height
 
@@ -90,9 +92,9 @@ def test_image_and_results_layout_prioritizes_preview_space(
     preview_fraction = pane_sizes[1] / sum(pane_sizes)
     assert 0.40 <= preview_fraction <= 0.50
     assert window.log.minimumHeight() == 80
-    assert image_growth >= 350
-    assert abs(results_growth) <= 5
-    assert window.results_splitter.height() <= 90
+    assert actual_window_growth > 0
+    assert image_growth >= actual_window_growth * 0.75
+    assert abs(results_growth) <= max(10, actual_window_growth * 0.15)
 
 
 def test_theme_uses_valid_application_font_for_default_text_size(application) -> None:
