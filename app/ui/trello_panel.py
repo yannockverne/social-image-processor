@@ -33,6 +33,7 @@ class TrelloPanel(QFrame):
 
     start_worker = Signal(object)
     activity = Signal(str)
+    state_changed = Signal()
 
     def __init__(
         self,
@@ -82,6 +83,7 @@ class TrelloPanel(QFrame):
         layout.addLayout(selectors)
         self.board.currentIndexChanged.connect(self._board_changed)
         self.trello_list.currentIndexChanged.connect(self._list_changed)
+        self.card.currentIndexChanged.connect(self.state_changed)
         self._set_selectors_enabled(False)
 
     def _set_selectors_enabled(self, enabled: bool) -> None:
@@ -179,6 +181,7 @@ class TrelloPanel(QFrame):
         self.status.setText(
             "Connected" if boards else "Connected — no open boards found"
         )
+        self.state_changed.emit()
         self.connect_button.setText("Reconnect")
         self.credentials_button.setVisible(True)
 
@@ -213,3 +216,15 @@ class TrelloPanel(QFrame):
     def _show_error(self, message: str) -> None:
         self.status.setText(message)
         self.connect_button.setEnabled(True)
+        self.state_changed.emit()
+
+    def disconnect_trello(self) -> None:
+        """End the in-memory Trello session without changing saved credentials."""
+        self.service = None
+        self.status.setText("Not connected")
+        self.connect_button.setText("Connect Trello")
+        self._fill(self.board, (), "Connect to browse boards…")
+        self._fill(self.trello_list, (), "Select a board first…")
+        self._fill(self.card, (), "Select a list first…")
+        self._set_selectors_enabled(False)
+        self.state_changed.emit()

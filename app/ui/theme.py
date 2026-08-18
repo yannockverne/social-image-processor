@@ -15,6 +15,9 @@ QWidget {{
     font-family: "Segoe UI", "Inter", sans-serif;
 }}
 QMainWindow, QWidget#mainContent {{ background-color: #111419; }}
+QMenuBar {{ background-color: #171b20; color: #d8dde5; }}
+QMenuBar::item:selected, QMenu::item:selected {{ background-color: #2b5278; }}
+QMenu {{ background-color: #1d2229; border: 1px solid #343b46; padding: 4px; }}
 QLabel {{ background: transparent; }}
 QLabel#appTitle {{
     color: #f4f6fa;
@@ -30,7 +33,7 @@ QLabel#sectionTitle {{
     letter-spacing: 1px;
 }}
 QLabel#fieldLabel {{ color: #aeb5c1; font-weight: 600; }}
-QFrame#card, QWidget#previewPanel, QFrame#footer {{
+QFrame#card, QFrame[role="workflowCard"], QWidget#previewPanel, QFrame#footer {{
     background-color: #1a1e24;
     border: 1px solid #2a3039;
     border-radius: 8px;
@@ -123,8 +126,14 @@ QLabel#previewImage {{
 QLabel#previewStatus {{ color: #8e97a5; font-size: 12px; }}
 QFrame#metric {{ background-color: #15191e; border: 1px solid #292f38; border-radius: 6px; }}
 QLabel#metricLabel {{ color: #818a97; font-size: 10px; font-weight: 700; }}
-QLabel#metricValue {{ color: #f1f3f7; font-size: 17px; font-weight: 700; }}
+QLabel#metricValue {{ color: #f1f3f7; font-size: 15px; font-weight: 700; }}
 QLabel#statusText {{ color: #c6ccd5; font-weight: 600; }}
+QLabel#integrationStatus {{ color: #aeb5c1; font-weight: 600; }}
+QLabel#readySummary {{ color: #cbd1da; font-weight: 600; }}
+QPushButton#trelloCardSelector {{ text-align: left; }}
+QWidget#loadingOverlay {{ background-color: rgba(17, 20, 25, 205); }}
+QLabel#loadingMessage {{ color: #f0f3f8; font-size: 14px; font-weight: 700; }}
+QProgressBar#loadingSpinner {{ min-height: 4px; max-height: 4px; }}
 QProgressBar {{
     min-height: 8px; max-height: 8px;
     background-color: #0f1216;

@@ -25,7 +25,10 @@ from PySide6.QtTest import QTest
 from PySide6.QtWidgets import (
     QApplication,
     QFileDialog,
+    QHeaderView,
     QMessageBox,
+    QPushButton,
+    QSizePolicy,
     QStyle,
     QStyleOptionViewItem,
     QTextEdit,
@@ -47,6 +50,7 @@ from app.services.folder_scanner import WatermarkScanResult
 from app.core.watermarking import WatermarkCatalog
 from app.ui.image_table import ImageTableModel, PlatformCheckDelegate
 from app.ui.main_window import MainWindow
+from app.ui.integration_dialogs import TrelloConfigurationDialog
 from app.ui.theme import apply_theme, configure_application_font
 from app.ui.workers import FunctionWorker
 
@@ -60,6 +64,54 @@ def process_deferred_scan(application) -> None:
     """Run both the scan-source timer and the coalesced dispatch timer."""
     application.processEvents()
     application.processEvents()
+
+
+def test_image_and_results_layout_prioritizes_preview_space(
+    window, application
+) -> None:
+    window.resize(1280, 800)
+    window.show()
+    application.processEvents()
+
+    header = window.table.horizontalHeader()
+    windowed_pane_sizes = window.image_splitter.sizes()
+    initial_window_height = window.height()
+    initial_image_height = window.image_splitter.height()
+    initial_results_height = window.results_container.height()
+
+    assert all(size > 0 for size in windowed_pane_sizes)
+    assert windowed_pane_sizes[0] >= window.table_area.minimumWidth()
+    assert window.table.horizontalHeader().length() <= window.table.viewport().width()
+    assert window.results_container.maximumHeight() == window.RESULTS_MAXIMUM_HEIGHT
+    assert initial_results_height <= window.RESULTS_MAXIMUM_HEIGHT
+    assert all(
+        widget.isVisible()
+        for widget in (
+            window.table,
+            window.preview,
+            window.results_splitter,
+            window.log,
+            window.results_splitter.widget(1),
+        )
+    )
+
+    window.resize(1600, 1000)
+    application.processEvents()
+
+    actual_window_growth = window.height() - initial_window_height
+    image_growth = window.image_splitter.height() - initial_image_height
+    results_growth = window.results_container.height() - initial_results_height
+    large_pane_sizes = window.image_splitter.sizes()
+
+    assert header.sectionResizeMode(ImageTableModel.FILENAME) == QHeaderView.Stretch
+    assert header.sectionResizeMode(ImageTableModel.WATERMARK) == QHeaderView.Interactive
+    assert window.results_container.sizePolicy().verticalPolicy() == QSizePolicy.Preferred
+    assert all(size > 0 for size in large_pane_sizes)
+    preview_fraction = large_pane_sizes[1] / sum(large_pane_sizes)
+    assert 0.45 <= preview_fraction <= 0.55
+    assert window.results_container.height() <= window.RESULTS_MAXIMUM_HEIGHT
+    assert actual_window_growth > 0
+    assert image_growth > results_growth
 
 
 def test_theme_uses_valid_application_font_for_default_text_size(application) -> None:
@@ -238,6 +290,94 @@ def test_window_constructs_and_restores_settings(application, tmp_path: Path) ->
 def test_trello_activity_reaches_shared_log(window) -> None:
     window.trello_panel.activity.emit("Trello: X_ready.jpg uploaded.")
     assert "Trello: X_ready.jpg uploaded." in window.log.toPlainText()
+
+
+def test_v2_menus_and_integration_status_are_available(window) -> None:
+    assert [action.text().replace("&", "") for action in window.menuBar().actions()] == [
+        "File",
+        "Trello",
+        "R2 Upload",
+        "Help",
+    ]
+    assert window.trello_status.text() == "Trello: Disconnected"
+    assert window.r2_status.text() == "R2: Not configured"
+    assert window.trello_card_button.text() == "No card selected — Select card"
+
+    window.r2_worker_url.setText("https://worker.example/upload")
+    assert window.r2_status.text() == "R2: Ready"
+
+
+def test_workflow_dashboard_has_one_primary_action(window) -> None:
+    assert window.findChild(QWidget, "sourceSection") is not None
+    assert window.findChild(QWidget, "imageProcessingSection") is not None
+    assert window.findChild(QWidget, "publishingSection") is not None
+    assert window.findChild(QWidget, "readySection") is not None
+    assert len(window.findChildren(QPushButton, "processButton")) == 1
+
+
+def test_trello_card_selector_tracks_card_and_enabled_state(window) -> None:
+    assert not window.trello_card_button.isEnabled()
+    window.r2_upload_enabled.setChecked(True)
+    window.trello_update_enabled.setChecked(True)
+    assert window.trello_card_button.isEnabled()
+
+    window.trello_panel.service = object()
+    window.trello_panel.card.addItem("Origin Series — 600i", "card-1")
+    window.trello_panel.card.setCurrentIndex(window.trello_panel.card.count() - 1)
+    window._update_integration_status()
+    assert window.trello_card_button.text() == "Origin Series — 600i"
+
+    window.trello_update_enabled.setChecked(False)
+    assert not window.trello_card_button.isEnabled()
+    assert window.trello_card_button.isVisibleTo(window)
+
+
+def test_trello_card_selector_opens_existing_dialog(application, monkeypatch) -> None:
+    opened = []
+    monkeypatch.setattr(
+        TrelloConfigurationDialog, "open", lambda self: opened.append(self)
+    )
+    window = MainWindow(EmptySettingsService())
+    window.r2_upload_enabled.setChecked(True)
+    window.trello_update_enabled.setChecked(True)
+    window.trello_card_button.click()
+    assert opened == [window.trello_dialog]
+    application.processEvents()
+    window.close()
+
+
+def test_ready_summary_derives_individual_and_bulk_selections(window) -> None:
+    window.model.replace_items(
+        [
+            ImageItem(Path("one.png"), 10, 5, 100),
+            ImageItem(Path("two.png"), 10, 5, 100),
+        ],
+        1,
+    )
+    assert window.ready_loaded.text() == "2 images loaded"
+    window.model.setData(
+        window.model.index(0, ImageTableModel.X), Qt.Checked, Qt.CheckStateRole
+    )
+    assert window.ready_x.text() == "1 selected for X"
+    window.model.set_platform_all(ImageTableModel.INSTAGRAM, True)
+    assert window.ready_instagram.text() == "2 selected for Instagram"
+    window.model.set_platform_all(ImageTableModel.X, True)
+    assert window.ready_x.text() == "2 selected for X"
+    window.model.set_platform_all(ImageTableModel.X, False)
+    window.model.set_platform_all(ImageTableModel.INSTAGRAM, False)
+    assert window.ready_x.text() == "0 selected for X"
+    assert window.ready_instagram.text() == "0 selected for Instagram"
+
+
+def test_loading_overlay_reports_and_cleans_up_preparation(window) -> None:
+    window.loading_overlay.show_work("Scanning images…")
+    assert not window.loading_overlay.isHidden()
+    assert window.loading_overlay.message.text() == "Scanning images…"
+
+    window.scan_generation = 3
+    window._scan_error(3, "folder unavailable")
+    assert window.loading_overlay.isHidden()
+    assert window.progress_text.text() == "Image scan failed"
 
 
 def test_launch_with_saved_paths_defers_and_safely_restores_scans(
