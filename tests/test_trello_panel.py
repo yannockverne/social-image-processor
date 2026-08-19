@@ -11,7 +11,7 @@ from app.models.trello import (
     TrelloCredentials,
     TrelloList,
 )
-from app.ui.trello_panel import TrelloPanel
+from app.ui.trello_panel import NewTrelloCardDialog, TrelloPanel
 
 
 class MemoryStore:
@@ -40,6 +40,10 @@ class FakeService:
     def list_cards(self, list_id):
         self.calls.append(("cards", list_id))
         return [TrelloCard("c1", "Post")]
+
+    def create_post_card(self, board_id, title, x_text, instagram_text):
+        self.calls.append(("create", board_id, title, x_text, instagram_text))
+        return TrelloCard("c-new", title)
 
 
 @pytest.fixture(scope="module")
@@ -97,3 +101,51 @@ def test_change_credentials_replaces_stored_values(panel, monkeypatch) -> None:
     panel.change_credentials()
     assert panel.store.saved == [replacement]
     assert panel.status.text() == "Connected"
+
+
+def test_new_card_dialog_returns_exact_field_values(application) -> None:
+    dialog = NewTrelloCardDialog()
+    dialog.title_edit.setText("  Card title  ")
+    dialog.x_edit.setPlainText("X\ncopy")
+    dialog.instagram_edit.setPlainText("")
+    assert dialog.values() == ("Card title", "X\ncopy", "")
+    dialog.close()
+
+
+def test_new_card_is_created_and_automatically_selected(panel) -> None:
+    panel.connect_button.click()
+    panel.board.setCurrentIndex(1)
+
+    class AcceptedDialog:
+        accepted = False
+
+        def values(self):
+            return ("New post", "X text", "Instagram text")
+
+        def accept(self):
+            self.accepted = True
+
+    activity = []
+    panel.activity.connect(activity.append)
+    dialog = AcceptedDialog()
+    panel._submit_new_card(dialog, "b1")
+
+    assert panel.service.calls[-1] == (
+        "create",
+        "b1",
+        "New post",
+        "X text",
+        "Instagram text",
+    )
+    assert panel.card.currentData() == "c-new"
+    assert "publication checklist" in panel.status.text()
+    assert activity == [panel.status.text()]
+    assert dialog.accepted
+
+
+def test_new_card_requires_connection_and_selected_board(panel) -> None:
+    panel.create_new_card()
+    assert "not connected" in panel.status.text()
+    panel.connect_button.click()
+    panel.create_new_card()
+    assert "No Social Media board" in panel.status.text()

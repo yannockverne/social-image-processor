@@ -25,6 +25,23 @@ from app.models.trello import (
 )
 
 
+PREPARATION_LIST_NAME = "🛠️ À préparer"
+PUBLICATION_CHECKLIST_NAME = "Publication"
+PUBLICATION_CHECKLIST_ITEMS = (
+    "Photos",
+    "Image selection",
+    "Retouching",
+    "Instagram + X copy",
+    "X post published",
+    "Instagram post published",
+)
+
+
+def build_post_description(x_text: str, instagram_text: str) -> str:
+    """Build the stable Trello description without manufacturing missing copy."""
+    return f"## X\n\n{x_text}\n\n## Insta\n\n{instagram_text}\n"
+
+
 class TrelloError(RuntimeError):
     """Human-readable Trello connection or API failure."""
 
@@ -159,6 +176,26 @@ class TrelloService:
             raise TrelloError("Trello returned an unexpected response.")
         return value
 
+    def _post(self, path: str, **parameters) -> dict:
+        query = urlencode(
+            {
+                **parameters,
+                "key": self.credentials.api_key,
+                "token": self.credentials.token,
+            }
+        )
+        request = Request(f"{self.base_url}{path}?{query}", method="POST")
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                value = json.load(response)
+        except (HTTPError, URLError, TimeoutError, OSError) as error:
+            self._raise_transport_error(error)
+        except (json.JSONDecodeError, UnicodeError) as error:
+            raise TrelloError("Trello returned an invalid response.") from error
+        if not isinstance(value, dict):
+            raise TrelloError("Trello returned an unexpected response.")
+        return value
+
     @staticmethod
     def _raise_transport_error(error: Exception) -> None:
         if isinstance(error, HTTPError):
@@ -192,6 +229,53 @@ class TrelloService:
                 f"/lists/{list_id}/cards", fields="name", filter="open"
             )
         ]
+
+    def create_post_card(
+        self, board_id: str, title: str, x_text: str, instagram_text: str
+    ) -> TrelloCard:
+        """Create a post card and its complete, initially-unchecked checklist."""
+        destination = next(
+            (
+                item
+                for item in self.list_lists(board_id)
+                if item.name == PREPARATION_LIST_NAME
+            ),
+            None,
+        )
+        if destination is None:
+            raise TrelloError(
+                f'Destination list "{PREPARATION_LIST_NAME}" was not found.'
+            )
+
+        value = self._post(
+            "/cards",
+            idList=destination.id,
+            name=title,
+            desc=build_post_description(x_text, instagram_text),
+        )
+        card_id, card_name = value.get("id"), value.get("name")
+        if not isinstance(card_id, str) or not isinstance(card_name, str):
+            raise TrelloError("Trello returned an invalid card creation response.")
+
+        try:
+            checklist = self._post(
+                f"/cards/{card_id}/checklists", name=PUBLICATION_CHECKLIST_NAME
+            )
+            checklist_id = checklist.get("id")
+            if not isinstance(checklist_id, str):
+                raise TrelloError("Trello returned an invalid checklist response.")
+            for item in PUBLICATION_CHECKLIST_ITEMS:
+                self._post(
+                    f"/checklists/{checklist_id}/checkItems",
+                    name=item,
+                    checked="false",
+                )
+        except Exception as error:
+            raise TrelloError(
+                f'Card "{card_name}" was created, but its publication checklist '
+                f"could not be completed: {error}"
+            ) from error
+        return TrelloCard(card_id, card_name)
 
     def get_card_description(self, card_id: str) -> str:
         query = urlencode(

@@ -174,6 +174,9 @@ class MainWindow(QMainWindow):
         self.trello_card_button = QPushButton("No card selected — Select card")
         self.trello_card_button.setObjectName("trelloCardSelector")
         self.trello_card_button.clicked.connect(self.trello_dialog.open)
+        self.trello_new_card_button = QPushButton("New card…")
+        self.trello_new_card_button.setProperty("role", "secondary")
+        self.trello_new_card_button.clicked.connect(self.trello_panel.create_new_card)
 
         self.ready_loaded = QLabel("0 images loaded")
         self.ready_x = QLabel("0 selected for X")
@@ -362,7 +365,8 @@ class MainWindow(QMainWindow):
             self.watermark_path, self.watermark_browse, self.watermark_enabled,
             self.watermark_selector, self.watermark_size, self.quality,
             self.r2_upload_enabled, self.r2_worker_url, self.trello_update_enabled,
-            self.trello_card_button, self.table, self.move_up_button,
+            self.trello_card_button, self.trello_new_card_button,
+            self.table, self.move_up_button,
             self.move_down_button, self.process_button,
         ]
         self._connect_menu_actions()
@@ -429,7 +433,10 @@ class MainWindow(QMainWindow):
         status.setColumnStretch(1, 1)
         layout.addLayout(status)
         layout.addWidget(self._field_label("Trello card"))
-        layout.addWidget(self.trello_card_button)
+        card_row = QHBoxLayout()
+        card_row.addWidget(self.trello_card_button, 1)
+        card_row.addWidget(self.trello_new_card_button)
+        layout.addLayout(card_row)
         return frame
 
     def _build_ready_section(self) -> QFrame:
