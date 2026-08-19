@@ -1060,6 +1060,22 @@ class MainWindow(QMainWindow):
             )
         else:
             self.log.append("[TRELLO] No usable R2 URLs; URL MAKE unchanged")
+        if self.trello_update_enabled.isChecked():
+            if result.trello_checklist_completed:
+                self.log.append(
+                    "[TRELLO] Checklist completed: "
+                    + ", ".join(result.trello_checklist_completed)
+                )
+            if result.trello_checklist_missing:
+                self.log.append(
+                    "[TRELLO] Expected checklist items not found: "
+                    + ", ".join(result.trello_checklist_missing)
+                )
+            if result.trello_checklist_error:
+                self.log.append(
+                    "[TRELLO] Checklist synchronization failed or partial: "
+                    + result.trello_checklist_error
+                )
 
     def _batch_event(self, event) -> None:
         if isinstance(event, ProgressUpdate):

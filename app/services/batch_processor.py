@@ -182,6 +182,26 @@ class BatchProcessor:
                 trello_urls_updated = len(urls)
             except Exception as error:
                 trello_error = f"{type(error).__name__}: {error}"
+        checklist_completed: tuple[str, ...] = ()
+        checklist_missing: tuple[str, ...] = ()
+        checklist_error = ""
+        if (
+            self._trello_service is not None
+            and self._trello_card_id
+            and statistics.successful_output_count
+        ):
+            try:
+                checklist = self._trello_service.complete_processing_checklist(
+                    self._trello_card_id
+                )
+                checklist_completed = checklist.completed
+                checklist_missing = checklist.missing
+                if checklist.failed:
+                    checklist_error = "Failed to complete: " + ", ".join(
+                        checklist.failed
+                    )
+            except Exception as error:
+                checklist_error = f"{type(error).__name__}: {error}"
         return BatchResult(
             tuple(exports),
             tuple(events),
@@ -189,6 +209,9 @@ class BatchProcessor:
             tuple(uploads),
             trello_urls_updated,
             trello_error,
+            checklist_completed,
+            checklist_missing,
+            checklist_error,
         )
 
 
