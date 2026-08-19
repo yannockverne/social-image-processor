@@ -11,7 +11,7 @@ from app.models.trello import (
     TrelloCredentials,
     TrelloList,
 )
-from app.ui.trello_panel import TrelloPanel
+from app.ui.trello_panel import NewTrelloCardDialog, TrelloPanel
 
 
 class MemoryStore:
@@ -39,7 +39,11 @@ class FakeService:
 
     def list_cards(self, list_id):
         self.calls.append(("cards", list_id))
-        return [TrelloCard("c1", "Post")]
+        return [TrelloCard("c1", "Post", "https://trello.com/c/c1")]
+
+    def create_post_card(self, board_id, list_id, title, x_text, instagram_text):
+        self.calls.append(("create", board_id, list_id, title, x_text, instagram_text))
+        return TrelloCard("c-new", title)
 
 
 @pytest.fixture(scope="module")
@@ -83,6 +87,77 @@ def test_dependent_board_list_and_card_loading_requires_explicit_choices(panel) 
     assert panel.card.currentData() is None
 
 
+def test_open_selected_card_is_safe_and_uses_existing_url(application) -> None:
+    opened = []
+    widget = TrelloPanel(MemoryStore(), FakeService, url_opener=lambda url: opened.append(url.toString()) or True)
+    widget.start_worker.connect(lambda worker: worker.run())
+
+    assert not widget.open_selected_card()
+    widget.connect_trello()
+    widget.board.setCurrentIndex(1)
+    widget.trello_list.setCurrentIndex(1)
+    widget.card.setCurrentIndex(1)
+    assert widget.selected_card_url() == "https://trello.com/c/c1"
+    assert widget.open_selected_card()
+    assert opened == ["https://trello.com/c/c1"]
+    widget.close()
+
+
+def test_open_selected_card_reports_browser_failure(application) -> None:
+    widget = TrelloPanel(MemoryStore(), FakeService, url_opener=lambda _url: False)
+    widget.start_worker.connect(lambda worker: worker.run())
+    activity = []
+    widget.activity.connect(activity.append)
+    widget.connect_trello()
+    widget.board.setCurrentIndex(1)
+    widget.trello_list.setCurrentIndex(1)
+    widget.card.setCurrentIndex(1)
+
+    assert not widget.open_selected_card()
+    assert "Could not open Trello card" in widget.status.text()
+    assert activity == [widget.status.text()]
+    widget.close()
+
+
+def test_saved_board_and_list_are_restored_on_connect(application) -> None:
+    widget = TrelloPanel(
+        MemoryStore(), FakeService, preferred_board_id="b1", preferred_list_id="l1"
+    )
+    widget.start_worker.connect(lambda worker: worker.run())
+    widget.connect_trello()
+    application.processEvents()
+
+    assert widget.board.currentData() == "b1"
+    assert widget.trello_list.currentData() == "l1"
+    widget.close()
+
+
+def test_stale_saved_list_keeps_restored_board(application) -> None:
+    widget = TrelloPanel(
+        MemoryStore(), FakeService, preferred_board_id="b1", preferred_list_id="gone"
+    )
+    widget.start_worker.connect(lambda worker: worker.run())
+    widget.connect_trello()
+    application.processEvents()
+
+    assert widget.board.currentData() == "b1"
+    assert widget.trello_list.currentData() is None
+    widget.close()
+
+
+def test_stale_saved_board_falls_back_safely(application) -> None:
+    widget = TrelloPanel(
+        MemoryStore(), FakeService, preferred_board_id="gone", preferred_list_id="l1"
+    )
+    widget.start_worker.connect(lambda worker: worker.run())
+    widget.connect_trello()
+    application.processEvents()
+
+    assert widget.board.currentData() is None
+    assert widget.preferred_board_id is None
+    widget.close()
+
+
 def test_failure_stays_inside_trello_panel(panel) -> None:
     panel.connect_button.click()
     panel._show_error("Trello authentication failed")
@@ -97,3 +172,52 @@ def test_change_credentials_replaces_stored_values(panel, monkeypatch) -> None:
     panel.change_credentials()
     assert panel.store.saved == [replacement]
     assert panel.status.text() == "Connected"
+
+
+def test_new_card_dialog_returns_exact_field_values(application) -> None:
+    dialog = NewTrelloCardDialog()
+    dialog.set_boards([TrelloBoard("b1", "Board")], "b1")
+    dialog.set_lists([TrelloList("l1", "Ready")], "l1")
+    dialog.title_edit.setText("  Card title  ")
+    dialog.x_edit.setPlainText("X\ncopy")
+    dialog.instagram_edit.setPlainText("")
+    assert dialog.values() == ("b1", "l1", "Card title", "X\ncopy", "")
+    dialog.close()
+
+
+def test_new_card_is_created_and_automatically_selected(panel) -> None:
+    panel.connect_button.click()
+    panel.board.setCurrentIndex(1)
+
+    class AcceptedDialog:
+        accepted = False
+
+        def values(self):
+            return ("b1", "l1", "New post", "X text", "Instagram text")
+
+        def accept(self):
+            self.accepted = True
+
+    activity = []
+    panel.activity.connect(activity.append)
+    dialog = AcceptedDialog()
+    panel._submit_new_card(dialog)
+
+    assert panel.service.calls[-1] == (
+        "create",
+        "b1",
+        "l1",
+        "New post",
+        "X text",
+        "Instagram text",
+    )
+    assert panel.card.currentData() == "c-new"
+    assert "publication checklist" in panel.status.text()
+    assert activity == [panel.status.text()]
+    assert dialog.accepted
+
+
+def test_new_card_requires_connection(panel) -> None:
+    panel.create_new_card()
+    assert "not connected" in panel.status.text()
+    panel.connect_button.click()

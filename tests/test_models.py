@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.models.image_item import ImageItem, is_instagram_ratio_supported
+from app.models.image_item import ImageItem, is_21_9_ratio, is_instagram_ratio_supported
 from app.models.profiles import ExportPlatform, get_profile
 
 
@@ -29,6 +29,22 @@ def test_image_selections_default_to_unchecked() -> None:
 )
 def test_instagram_ratio_supported(dimensions, supported: bool) -> None:
     assert is_instagram_ratio_supported(*dimensions) is supported
+
+
+@pytest.mark.parametrize(
+    ("dimensions", "is_21_9"),
+    [
+        ((3440, 1440), True),
+        ((2560, 1080), True),
+        ((1920, 1080), False),
+        ((4000, 5000), False),
+        ((2000, 3000), False),
+        ((0, 1080), False),
+        ((2560, 0), False),
+    ],
+)
+def test_practical_21_9_ratio_classification(dimensions, is_21_9: bool) -> None:
+    assert is_21_9_ratio(*dimensions) is is_21_9
 
 
 @pytest.mark.parametrize(

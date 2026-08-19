@@ -28,6 +28,17 @@ class TrelloList:
 class TrelloCard:
     id: str
     name: str
+    url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class TrelloChecklistSyncResult:
+    """Outcome of completing the processing items on an existing checklist."""
+
+    completed: tuple[str, ...] = ()
+    already_complete: tuple[str, ...] = ()
+    missing: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

@@ -601,6 +601,59 @@ def test_platform_bulk_actions_are_isolated_and_stale_thumbnail_ignored(window) 
     assert window.model.data(window.model.index(0, 0), Qt.DecorationRole) is None
 
 
+@pytest.mark.parametrize("column", (ImageTableModel.X, ImageTableModel.INSTAGRAM))
+def test_individual_platform_selection_moves_item_to_top_and_preserves_state(
+    window, column
+) -> None:
+    first = ImageItem(Path("first.png"), 2100, 900, 1, export_to_x=True)
+    selected = ImageItem(Path("selected.png"), 4000, 5000, 1)
+    window.model.replace_items([first, selected], 1)
+
+    assert window.model.setData(
+        window.model.index(1, column), Qt.Checked, Qt.CheckStateRole
+    )
+
+    assert window.model.items[0].path.name == "selected.png"
+    assert getattr(
+        window.model.items[0],
+        "export_to_x" if column == ImageTableModel.X else "export_to_instagram",
+    )
+    assert window.model.items[1].export_to_x
+
+
+def test_repeated_platform_selections_put_latest_selection_first(window) -> None:
+    items = [ImageItem(Path(f"{name}.png"), 2100, 900, 1) for name in "abc"]
+    window.model.replace_items(items, 1)
+    window.model.setData(window.model.index(2, ImageTableModel.X), Qt.Checked, Qt.CheckStateRole)
+    window.model.setData(window.model.index(2, ImageTableModel.INSTAGRAM), Qt.Checked, Qt.CheckStateRole)
+
+    assert [item.path.name for item in window.model.items] == ["b.png", "c.png", "a.png"]
+    assert window.model.items[1].export_to_x
+
+
+def test_ratio_filter_shows_practical_21_9_or_all_other_dimensions(window) -> None:
+    items = [
+        ImageItem(Path("wide.png"), 3440, 1440, 1),
+        ImageItem(Path("wide2.png"), 2560, 1080, 1),
+        ImageItem(Path("standard.png"), 1920, 1080, 1),
+        ImageItem(Path("portrait.png"), 4000, 5000, 1, export_to_x=True),
+        ImageItem(Path("portrait2.png"), 2000, 3000, 1),
+    ]
+    window.model.replace_items(items, 1)
+    window.table.selectRow(3)
+
+    window.ratio_filter.setCurrentText("21:9")
+    assert window.model.visible_rows() == [0, 1]
+    assert not window.table.selectionModel().selectedRows()
+    window.ratio_filter.setCurrentText("Other")
+    assert window.model.visible_rows() == [2, 3, 4]
+    assert window.model.items[3].export_to_x
+    window.table.selectRow(3)
+    assert window.model.items[window.table.currentIndex().row()].path.name == "portrait.png"
+    window.ratio_filter.setCurrentText("All")
+    assert window.model.visible_rows() == [0, 1, 2, 3, 4]
+
+
 @pytest.mark.parametrize(
     ("column", "attribute"),
     (
