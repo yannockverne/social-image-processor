@@ -16,6 +16,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSizePolicy,
+    QTextEdit,
     QVBoxLayout,
 )
 
@@ -26,6 +27,48 @@ from app.services.trello_service import (
     WindowsCredentialStore,
 )
 from app.ui.workers import FunctionWorker
+
+
+class NewTrelloCardDialog(QDialog):
+    """Collect only the user-authored fields needed for a new post card."""
+
+    request_create = Signal()
+
+    def __init__(self, parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("New Trello card")
+        self.setMinimumWidth(420)
+        form = QFormLayout(self)
+        self.title_edit = QLineEdit()
+        self.x_edit = QTextEdit()
+        self.instagram_edit = QTextEdit()
+        self.x_edit.setFixedHeight(90)
+        self.instagram_edit.setFixedHeight(90)
+        form.addRow("Card title", self.title_edit)
+        form.addRow("X text", self.x_edit)
+        form.addRow("Instagram text", self.instagram_edit)
+        self.buttons = QDialogButtonBox(
+            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
+        )
+        self.buttons.button(QDialogButtonBox.Ok).setText("Create card")
+        self.buttons.accepted.connect(self._accept_if_valid)
+        self.buttons.rejected.connect(self.reject)
+        form.addRow(self.buttons)
+
+    def _accept_if_valid(self) -> None:
+        if self.title_edit.text().strip():
+            self.buttons.button(QDialogButtonBox.Ok).setEnabled(False)
+            self.request_create.emit()
+
+    def reset_submission(self) -> None:
+        self.buttons.button(QDialogButtonBox.Ok).setEnabled(True)
+
+    def values(self) -> tuple[str, str, str]:
+        return (
+            self.title_edit.text().strip(),
+            self.x_edit.toPlainText(),
+            self.instagram_edit.toPlainText(),
+        )
 
 
 class TrelloPanel(QFrame):
@@ -217,6 +260,59 @@ class TrelloPanel(QFrame):
         self.status.setText(message)
         self.connect_button.setEnabled(True)
         self.state_changed.emit()
+
+    def create_new_card(self) -> None:
+        """Prompt for and asynchronously create a card on the selected board."""
+        if self.service is None:
+            self._show_error("Trello is not connected. Connect Trello first.")
+            return
+        board_id = self.board.currentData()
+        if not board_id:
+            self._show_error("No Social Media board is selected or available.")
+            return
+        dialog = NewTrelloCardDialog(self.window())
+        dialog.request_create.connect(
+            lambda: self._submit_new_card(dialog, board_id)
+        )
+        dialog.open()
+
+    def _submit_new_card(self, dialog: NewTrelloCardDialog, board_id: str) -> None:
+        title, x_text, instagram_text = dialog.values()
+        self.status.setText("Creating Trello card…")
+        worker = FunctionWorker(
+            lambda: self.service.create_post_card(
+                board_id, title, x_text, instagram_text
+            )
+        )
+        worker.signals.result.connect(
+            lambda card: self._new_card_created(card, dialog)
+        )
+        worker.signals.error.connect(
+            lambda message: self._new_card_failed(message, dialog)
+        )
+        worker.signals.finished.connect(
+            lambda _worker: self.connect_button.setEnabled(True)
+        )
+        self.start_worker.emit(worker)
+
+    def _new_card_created(self, card, dialog=None) -> None:
+        """Add and select the result without disturbing existing browsing logic."""
+        index = self.card.findData(card.id)
+        if index < 0:
+            self.card.addItem(card.name, card.id)
+            index = self.card.count() - 1
+        self.card.setEnabled(True)
+        self.card.setCurrentIndex(index)
+        message = f'Trello card "{card.name}" created with publication checklist.'
+        self.status.setText(message)
+        self.activity.emit(message)
+        self.state_changed.emit()
+        if dialog is not None:
+            dialog.accept()
+
+    def _new_card_failed(self, message: str, dialog: NewTrelloCardDialog) -> None:
+        dialog.reset_submission()
+        self._show_error(message)
 
     def disconnect_trello(self) -> None:
         """End the in-memory Trello session without changing saved credentials."""
