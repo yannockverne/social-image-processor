@@ -112,7 +112,6 @@ def test_create_post_card_adds_unchecked_publication_checklist(monkeypatch) -> N
     requests = []
     responses = iter(
         [
-            '[{"id":"prepare","name":"🛠️ À préparer"}]'.encode(),
             b'{"id":"card-2","name":"A spontaneous post"}',
             b'{"id":"check-1"}',
             *[b'{"id":"item"}' for _ in PUBLICATION_CHECKLIST_ITEMS],
@@ -125,14 +124,14 @@ def test_create_post_card_adds_unchecked_publication_checklist(monkeypatch) -> N
 
     monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
     card = TrelloService(TrelloCredentials("key", "token")).create_post_card(
-        "board-1", "A spontaneous post", "X copy", "Insta copy"
+        "board-1", "chosen-list", "A spontaneous post", "X copy", "Insta copy"
     )
 
     assert (card.id, card.name) == ("card-2", "A spontaneous post")
-    assert requests[1].method == "POST"
-    assert "idList=prepare" in requests[1].full_url
-    assert "desc=%23%23+X" in requests[1].full_url
-    item_requests = requests[3:]
+    assert requests[0].method == "POST"
+    assert "idList=chosen-list" in requests[0].full_url
+    assert "desc=%23%23+X" in requests[0].full_url
+    item_requests = requests[2:]
     assert len(item_requests) == len(PUBLICATION_CHECKLIST_ITEMS)
     assert all("checked=false" in request.full_url for request in item_requests)
     assert all(
@@ -141,21 +140,9 @@ def test_create_post_card_adds_unchecked_publication_checklist(monkeypatch) -> N
     )
 
 
-def test_create_post_card_reports_missing_destination_list(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.services.trello_service.urlopen",
-        lambda *_args, **_kwargs: Response(b'[{"id":"other","name":"Ready"}]'),
-    )
-    with pytest.raises(TrelloError, match="Destination list.*not found"):
-        TrelloService(TrelloCredentials("key", "token")).create_post_card(
-            "board", "Title", "", ""
-        )
-
-
 def test_checklist_failure_does_not_claim_full_creation(monkeypatch) -> None:
     responses = iter(
         (
-            Response('[{"id":"prepare","name":"🛠️ À préparer"}]'.encode()),
             Response(b'{"id":"card-2","name":"Title"}'),
         )
     )
@@ -169,7 +156,7 @@ def test_checklist_failure_does_not_claim_full_creation(monkeypatch) -> None:
     monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
     with pytest.raises(TrelloError, match="was created, but.*checklist"):
         TrelloService(TrelloCredentials("key", "token")).create_post_card(
-            "board", "Title", "", ""
+            "board", "list", "Title", "", ""
         )
 
 

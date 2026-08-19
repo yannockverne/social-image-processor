@@ -232,25 +232,17 @@ class TrelloService:
         ]
 
     def create_post_card(
-        self, board_id: str, title: str, x_text: str, instagram_text: str
+        self,
+        board_id: str,
+        list_id: str,
+        title: str,
+        x_text: str,
+        instagram_text: str,
     ) -> TrelloCard:
         """Create a post card and its complete, initially-unchecked checklist."""
-        destination = next(
-            (
-                item
-                for item in self.list_lists(board_id)
-                if item.name == PREPARATION_LIST_NAME
-            ),
-            None,
-        )
-        if destination is None:
-            raise TrelloError(
-                f'Destination list "{PREPARATION_LIST_NAME}" was not found.'
-            )
-
         value = self._post(
             "/cards",
-            idList=destination.id,
+            idList=list_id,
             name=title,
             desc=build_post_description(x_text, instagram_text),
         )

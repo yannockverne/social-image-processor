@@ -69,6 +69,8 @@ class SettingsService:
             "trello_update_enabled": bool(
                 settings.trello_update_enabled and settings.r2_upload_enabled
             ),
+            "trello_board_id": self._identifier(settings.trello_board_id),
+            "trello_list_id": self._identifier(settings.trello_list_id),
         }
 
         temporary_path: Path | None = None
@@ -108,7 +110,15 @@ class SettingsService:
                 payload.get("trello_update_enabled"), False
             )
             and cls._boolean(payload.get("r2_upload_enabled"), False),
+            trello_board_id=cls._identifier(payload.get("trello_board_id")),
+            trello_list_id=cls._identifier(payload.get("trello_list_id")),
         )
+
+    @staticmethod
+    def _identifier(value: Any) -> str | None:
+        if not isinstance(value, str) or not value.strip() or "\x00" in value:
+            return None
+        return value.strip()
 
     @staticmethod
     def _string(value: Any) -> str:
