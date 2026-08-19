@@ -21,6 +21,11 @@ def is_instagram_ratio_supported(width: int, height: int) -> bool:
     return INSTAGRAM_MIN_ASPECT_RATIO <= ratio <= INSTAGRAM_MAX_ASPECT_RATIO
 
 
+def is_21_9_ratio(width: int, height: int) -> bool:
+    """Return whether dimensions have the exact 21:9 aspect ratio."""
+    return width > 0 and height > 0 and width * 9 == height * 21
+
+
 @dataclass(frozen=True, slots=True)
 class ImageItem:
     """Metadata and user selections for one source image.

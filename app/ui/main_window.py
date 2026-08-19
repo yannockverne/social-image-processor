@@ -182,6 +182,10 @@ class MainWindow(QMainWindow):
         self.trello_new_card_button = QPushButton("New card…")
         self.trello_new_card_button.setProperty("role", "secondary")
         self.trello_new_card_button.clicked.connect(self.trello_panel.create_new_card)
+        self.trello_open_card_button = QPushButton("Open card")
+        self.trello_open_card_button.setProperty("role", "secondary")
+        self.trello_open_card_button.clicked.connect(self.trello_panel.open_selected_card)
+        self.trello_open_card_button.setEnabled(False)
 
         self.ready_loaded = QLabel("0 images loaded")
         self.ready_x = QLabel("0 selected for X")
@@ -212,6 +216,11 @@ class MainWindow(QMainWindow):
         table_layout.setContentsMargins(0, 0, 0, 0)
         table_layout.setSpacing(8)
         selections = QHBoxLayout()
+        selections.addWidget(self._field_label("Ratio"))
+        self.ratio_filter = QComboBox()
+        self.ratio_filter.addItems(("All", "21:9", "Other"))
+        selections.addWidget(self.ratio_filter)
+        selections.addSpacing(8)
         for platform, column in (
             ("X", ImageTableModel.X),
             ("Instagram", ImageTableModel.INSTAGRAM),
@@ -237,6 +246,7 @@ class MainWindow(QMainWindow):
         table_layout.addLayout(selections)
 
         self.model = ImageTableModel(self)
+        self.ratio_filter.currentTextChanged.connect(self._apply_ratio_filter)
         self.model.dataChanged.connect(self._update_ready_summary)
         self.model.modelReset.connect(self._update_ready_summary)
         self.table = QTableView()
@@ -371,6 +381,7 @@ class MainWindow(QMainWindow):
             self.watermark_selector, self.watermark_size, self.quality,
             self.r2_upload_enabled, self.r2_worker_url, self.trello_update_enabled,
             self.trello_card_button, self.trello_new_card_button,
+            self.trello_open_card_button, self.ratio_filter,
             self.table, self.move_up_button,
             self.move_down_button, self.process_button,
         ]
@@ -440,6 +451,7 @@ class MainWindow(QMainWindow):
         layout.addWidget(self._field_label("Trello card"))
         card_row = QHBoxLayout()
         card_row.addWidget(self.trello_card_button, 1)
+        card_row.addWidget(self.trello_open_card_button)
         card_row.addWidget(self.trello_new_card_button)
         layout.addLayout(card_row)
         return frame
@@ -509,6 +521,9 @@ class MainWindow(QMainWindow):
             else "No card selected — Select card"
         )
         self._update_trello_card_button()
+        self.trello_open_card_button.setEnabled(
+            bool(self.trello_panel.selected_card_url()) and not self.batch_running
+        )
         configured = not bool(R2UploadService(self.r2_worker_url.text()).validation_error)
         self.r2_status.setText(f"R2: {'Ready' if configured else 'Not configured'}")
 
@@ -530,6 +545,23 @@ class MainWindow(QMainWindow):
         self.ready_instagram.setText(
             f"{sum(item.export_to_instagram for item in items)} selected for Instagram"
         )
+        self._apply_ratio_filter(self.ratio_filter.currentText())
+
+    def _apply_ratio_filter(self, value: str) -> None:
+        """Apply the ratio predicate without discarding model selection state."""
+        selected_path = None
+        rows = self.table.selectionModel().selectedRows() if self.table.selectionModel() else []
+        if rows:
+            selected_path = self.model.items[rows[0].row()].path
+        self.model.set_ratio_filter(value)
+        for row, item in enumerate(self.model.items):
+            self.table.setRowHidden(row, not self.model.item_matches_filter(item))
+        if selected_path is not None:
+            row = next((i for i, item in enumerate(self.model.items) if item.path == selected_path), -1)
+            if row >= 0 and not self.table.isRowHidden(row):
+                self.table.selectRow(row)
+            elif row >= 0:
+                self.table.clearSelection()
 
     def _move_selected_row(self, offset: int) -> None:
         rows = self.table.selectionModel().selectedRows()

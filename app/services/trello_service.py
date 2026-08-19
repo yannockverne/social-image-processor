@@ -225,9 +225,9 @@ class TrelloService:
 
     def list_cards(self, list_id: str) -> list[TrelloCard]:
         return [
-            TrelloCard(item["id"], item["name"])
+            TrelloCard(item["id"], item["name"], item.get("url"))
             for item in self._get(
-                f"/lists/{list_id}/cards", fields="name", filter="open"
+                f"/lists/{list_id}/cards", fields="name,url", filter="open"
             )
         ]
 
@@ -268,7 +268,10 @@ class TrelloService:
                 f'Card "{card_name}" was created, but its publication checklist '
                 f"could not be completed: {error}"
             ) from error
-        return TrelloCard(card_id, card_name)
+        card_url = value.get("url")
+        return TrelloCard(
+            card_id, card_name, card_url if isinstance(card_url, str) else None
+        )
 
     def get_card_description(self, card_id: str) -> str:
         query = urlencode(

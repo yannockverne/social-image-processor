@@ -39,7 +39,7 @@ class FakeService:
 
     def list_cards(self, list_id):
         self.calls.append(("cards", list_id))
-        return [TrelloCard("c1", "Post")]
+        return [TrelloCard("c1", "Post", "https://trello.com/c/c1")]
 
     def create_post_card(self, board_id, list_id, title, x_text, instagram_text):
         self.calls.append(("create", board_id, list_id, title, x_text, instagram_text))
@@ -85,6 +85,38 @@ def test_dependent_board_list_and_card_loading_requires_explicit_choices(panel) 
     assert panel.service.calls[-1] == ("cards", "l1")
     assert panel.card.count() == 2
     assert panel.card.currentData() is None
+
+
+def test_open_selected_card_is_safe_and_uses_existing_url(application) -> None:
+    opened = []
+    widget = TrelloPanel(MemoryStore(), FakeService, url_opener=lambda url: opened.append(url.toString()) or True)
+    widget.start_worker.connect(lambda worker: worker.run())
+
+    assert not widget.open_selected_card()
+    widget.connect_trello()
+    widget.board.setCurrentIndex(1)
+    widget.trello_list.setCurrentIndex(1)
+    widget.card.setCurrentIndex(1)
+    assert widget.selected_card_url() == "https://trello.com/c/c1"
+    assert widget.open_selected_card()
+    assert opened == ["https://trello.com/c/c1"]
+    widget.close()
+
+
+def test_open_selected_card_reports_browser_failure(application) -> None:
+    widget = TrelloPanel(MemoryStore(), FakeService, url_opener=lambda _url: False)
+    widget.start_worker.connect(lambda worker: worker.run())
+    activity = []
+    widget.activity.connect(activity.append)
+    widget.connect_trello()
+    widget.board.setCurrentIndex(1)
+    widget.trello_list.setCurrentIndex(1)
+    widget.card.setCurrentIndex(1)
+
+    assert not widget.open_selected_card()
+    assert "Could not open Trello card" in widget.status.text()
+    assert activity == [widget.status.text()]
+    widget.close()
 
 
 def test_saved_board_and_list_are_restored_on_connect(application) -> None:
