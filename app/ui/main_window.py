@@ -161,8 +161,13 @@ class MainWindow(QMainWindow):
         self.r2_worker_url = QLineEdit()
         self.r2_worker_url.setPlaceholderText("https://worker.example.com/upload")
         self.r2_worker_url.setClearButtonEnabled(True)
-        self.trello_panel = TrelloPanel(parent=self)
+        self.trello_panel = TrelloPanel(
+            preferred_board_id=self.settings.trello_board_id,
+            preferred_list_id=self.settings.trello_list_id,
+            parent=self,
+        )
         self.trello_panel.start_worker.connect(self._start_worker)
+        self.trello_panel.destination_used.connect(self._save_trello_destination)
         self.trello_dialog = TrelloConfigurationDialog(self.trello_panel, self)
         self.r2_dialog = R2SettingsDialog(
             self.r2_worker_url, self.settings.r2_remote_prefix, self
@@ -735,6 +740,17 @@ class MainWindow(QMainWindow):
             self.settings.r2_remote_prefix,
             self.trello_update_enabled.isChecked()
             and self.r2_upload_enabled.isChecked(),
+            self.settings.trello_board_id,
+            self.settings.trello_list_id,
+        )
+        try:
+            self.settings_service.save(self.settings)
+        except (OSError, ValueError) as error:
+            self.statusBar().showMessage(f"Could not save settings: {error}", 5000)
+
+    def _save_trello_destination(self, board_id: str, list_id: str) -> None:
+        self.settings = replace(
+            self.settings, trello_board_id=board_id, trello_list_id=list_id
         )
         try:
             self.settings_service.save(self.settings)

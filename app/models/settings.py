@@ -27,3 +27,5 @@ class ApplicationSettings:
     r2_worker_url: str = ""
     r2_remote_prefix: str = ""
     trello_update_enabled: bool = False
+    trello_board_id: str | None = None
+    trello_list_id: str | None = None

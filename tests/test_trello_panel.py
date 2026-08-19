@@ -41,8 +41,8 @@ class FakeService:
         self.calls.append(("cards", list_id))
         return [TrelloCard("c1", "Post")]
 
-    def create_post_card(self, board_id, title, x_text, instagram_text):
-        self.calls.append(("create", board_id, title, x_text, instagram_text))
+    def create_post_card(self, board_id, list_id, title, x_text, instagram_text):
+        self.calls.append(("create", board_id, list_id, title, x_text, instagram_text))
         return TrelloCard("c-new", title)
 
 
@@ -87,6 +87,45 @@ def test_dependent_board_list_and_card_loading_requires_explicit_choices(panel) 
     assert panel.card.currentData() is None
 
 
+def test_saved_board_and_list_are_restored_on_connect(application) -> None:
+    widget = TrelloPanel(
+        MemoryStore(), FakeService, preferred_board_id="b1", preferred_list_id="l1"
+    )
+    widget.start_worker.connect(lambda worker: worker.run())
+    widget.connect_trello()
+    application.processEvents()
+
+    assert widget.board.currentData() == "b1"
+    assert widget.trello_list.currentData() == "l1"
+    widget.close()
+
+
+def test_stale_saved_list_keeps_restored_board(application) -> None:
+    widget = TrelloPanel(
+        MemoryStore(), FakeService, preferred_board_id="b1", preferred_list_id="gone"
+    )
+    widget.start_worker.connect(lambda worker: worker.run())
+    widget.connect_trello()
+    application.processEvents()
+
+    assert widget.board.currentData() == "b1"
+    assert widget.trello_list.currentData() is None
+    widget.close()
+
+
+def test_stale_saved_board_falls_back_safely(application) -> None:
+    widget = TrelloPanel(
+        MemoryStore(), FakeService, preferred_board_id="gone", preferred_list_id="l1"
+    )
+    widget.start_worker.connect(lambda worker: worker.run())
+    widget.connect_trello()
+    application.processEvents()
+
+    assert widget.board.currentData() is None
+    assert widget.preferred_board_id is None
+    widget.close()
+
+
 def test_failure_stays_inside_trello_panel(panel) -> None:
     panel.connect_button.click()
     panel._show_error("Trello authentication failed")
@@ -105,10 +144,12 @@ def test_change_credentials_replaces_stored_values(panel, monkeypatch) -> None:
 
 def test_new_card_dialog_returns_exact_field_values(application) -> None:
     dialog = NewTrelloCardDialog()
+    dialog.set_boards([TrelloBoard("b1", "Board")], "b1")
+    dialog.set_lists([TrelloList("l1", "Ready")], "l1")
     dialog.title_edit.setText("  Card title  ")
     dialog.x_edit.setPlainText("X\ncopy")
     dialog.instagram_edit.setPlainText("")
-    assert dialog.values() == ("Card title", "X\ncopy", "")
+    assert dialog.values() == ("b1", "l1", "Card title", "X\ncopy", "")
     dialog.close()
 
 
@@ -120,7 +161,7 @@ def test_new_card_is_created_and_automatically_selected(panel) -> None:
         accepted = False
 
         def values(self):
-            return ("New post", "X text", "Instagram text")
+            return ("b1", "l1", "New post", "X text", "Instagram text")
 
         def accept(self):
             self.accepted = True
@@ -128,11 +169,12 @@ def test_new_card_is_created_and_automatically_selected(panel) -> None:
     activity = []
     panel.activity.connect(activity.append)
     dialog = AcceptedDialog()
-    panel._submit_new_card(dialog, "b1")
+    panel._submit_new_card(dialog)
 
     assert panel.service.calls[-1] == (
         "create",
         "b1",
+        "l1",
         "New post",
         "X text",
         "Instagram text",
@@ -143,9 +185,7 @@ def test_new_card_is_created_and_automatically_selected(panel) -> None:
     assert dialog.accepted
 
 
-def test_new_card_requires_connection_and_selected_board(panel) -> None:
+def test_new_card_requires_connection(panel) -> None:
     panel.create_new_card()
     assert "not connected" in panel.status.text()
     panel.connect_button.click()
-    panel.create_new_card()
-    assert "No Social Media board" in panel.status.text()

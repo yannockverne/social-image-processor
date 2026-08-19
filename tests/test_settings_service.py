@@ -28,6 +28,8 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         r2_upload_enabled=True,
         r2_worker_url="https://worker.example/upload",
         r2_remote_prefix="campaign/2026",
+        trello_board_id="board-1",
+        trello_list_id="list-2",
     )
 
     service.save(expected)
@@ -43,6 +45,8 @@ def test_settings_round_trip(tmp_path: Path) -> None:
         r2_upload_enabled=True,
         r2_worker_url="https://worker.example/upload",
         r2_remote_prefix="campaign/2026",
+        trello_board_id="board-1",
+        trello_list_id="list-2",
     )
     assert json.loads(path.read_text(encoding="utf-8"))["jpeg_quality"] == 88
 
@@ -59,6 +63,18 @@ def test_existing_settings_without_r2_fields_remain_backward_compatible(
     assert settings.r2_upload_enabled is False
     assert settings.r2_worker_url == ""
     assert settings.r2_remote_prefix == ""
+    assert settings.trello_board_id is None
+    assert settings.trello_list_id is None
+
+
+def test_trello_destination_survives_settings_reload(tmp_path: Path) -> None:
+    service = SettingsService(tmp_path / "settings.json")
+    service.save(ApplicationSettings(trello_board_id=" board ", trello_list_id="list"))
+
+    restored = service.load()
+
+    assert restored.trello_board_id == "board"
+    assert restored.trello_list_id == "list"
 
 
 def test_corrupt_or_non_object_json_returns_defaults(tmp_path: Path) -> None:
