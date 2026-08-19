@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QToolTip,
 )
 
-from app.models.image_item import ImageItem, is_instagram_ratio_supported
+from app.models.image_item import ImageItem, is_21_9_ratio, is_instagram_ratio_supported
 from app.models.watermark import WatermarkStatus
 from app.utils.formatting import format_bytes
 
@@ -51,6 +51,20 @@ class ImageTableModel(QAbstractTableModel):
         self.items: list[ImageItem] = []
         self._thumbnails: dict[int, QPixmap] = {}
         self.generation = 0
+        self.ratio_filter = "All"
+
+    def item_matches_filter(self, item: ImageItem) -> bool:
+        """Return whether *item* belongs in the active 21:9 filter."""
+        is_wide = is_21_9_ratio(item.width, item.height)
+        return self.ratio_filter == "All" or (self.ratio_filter == "21:9") == is_wide
+
+    def set_ratio_filter(self, value: str) -> None:
+        if value not in ("All", "21:9", "Other"):
+            raise ValueError(f"Unknown ratio filter: {value}")
+        self.ratio_filter = value
+
+    def visible_rows(self) -> list[int]:
+        return [row for row, item in enumerate(self.items) if self.item_matches_filter(item)]
 
     def rowCount(self, parent=QModelIndex()) -> int:
         return 0 if parent.isValid() else len(self.items)
@@ -126,6 +140,7 @@ class ImageTableModel(QAbstractTableModel):
         # integer 2 equal to CheckState.Checked, so normalize either form first.
         check_state = getattr(value, "value", value)
         checked = check_state == Qt.CheckState.Checked.value
+        old_item = item
         self.items[index.row()] = replace(
             item,
             **(
@@ -134,6 +149,17 @@ class ImageTableModel(QAbstractTableModel):
                 else {"export_to_instagram": checked}
             ),
         )
+        if checked and self.items[index.row()] != old_item:
+            first_visible = next(iter(self.visible_rows()), index.row())
+            if index.row() != first_visible:
+                self.moveRows(
+                    QModelIndex(), index.row(), 1, QModelIndex(), first_visible
+                )
+                moved_index = self.index(first_visible, index.column())
+                self.dataChanged.emit(
+                    moved_index, moved_index, [Qt.CheckStateRole]
+                )
+                return True
         self.dataChanged.emit(index, index, [Qt.CheckStateRole])
         return True
 

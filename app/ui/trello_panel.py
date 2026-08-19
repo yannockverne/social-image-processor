@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -126,6 +127,7 @@ class TrelloPanel(QFrame):
         service_factory: Callable[[TrelloCredentials], TrelloService] = TrelloService,
         preferred_board_id: str | None = None,
         preferred_list_id: str | None = None,
+        url_opener: Callable[[QUrl], bool] = QDesktopServices.openUrl,
         parent=None,
     ) -> None:
         super().__init__(parent)
@@ -136,6 +138,8 @@ class TrelloPanel(QFrame):
         self.preferred_board_id = preferred_board_id
         self.preferred_list_id = preferred_list_id
         self._boards = []
+        self._cards_by_id = {}
+        self.url_opener = url_opener
         layout = QVBoxLayout(self)
         layout.setContentsMargins(14, 10, 14, 12)
         layout.setSpacing(7)
@@ -284,6 +288,7 @@ class TrelloPanel(QFrame):
             self.preferred_board_id = None
 
     def _board_changed(self, _index: int) -> None:
+        self._cards_by_id.clear()
         board_id = self.board.currentData()
         self._fill(
             self.trello_list, (), "Loading…" if board_id else "Select a board first…"
@@ -306,6 +311,7 @@ class TrelloPanel(QFrame):
             self.preferred_list_id = None
 
     def _list_changed(self, _index: int) -> None:
+        self._cards_by_id.clear()
         list_id = self.trello_list.currentData()
         self._fill(self.card, (), "Loading…" if list_id else "Select a list first…")
         self.card.setEnabled(False)
@@ -313,8 +319,29 @@ class TrelloPanel(QFrame):
             self._run(lambda: self.service.list_cards(list_id), self._cards_loaded)
 
     def _cards_loaded(self, cards) -> None:
+        self._cards_by_id = {card.id: card for card in cards}
         self._fill(self.card, cards, "Select a card…" if cards else "No cards found")
         self.card.setEnabled(True)
+
+    def selected_card_url(self) -> str | None:
+        card = self._cards_by_id.get(self.card.currentData())
+        return card.url if card else None
+
+    def open_selected_card(self) -> bool:
+        """Open the selected card using URL data already returned by Trello."""
+        url = self.selected_card_url()
+        if not url:
+            self._show_error("Select a Trello card with a valid URL first.")
+            return False
+        try:
+            if not self.url_opener(QUrl(url)):
+                raise RuntimeError("the browser rejected the URL")
+        except Exception as error:
+            message = f"Could not open Trello card: {error}"
+            self._show_error(message)
+            self.activity.emit(message)
+            return False
+        return True
 
     def _show_error(self, message: str) -> None:
         self.status.setText(message)
@@ -374,6 +401,7 @@ class TrelloPanel(QFrame):
         if index < 0:
             self.card.addItem(card.name, card.id)
             index = self.card.count() - 1
+        self._cards_by_id[card.id] = card
         self.card.setEnabled(True)
         self.card.setCurrentIndex(index)
         message = f'Trello card "{card.name}" created with publication checklist.'
@@ -393,6 +421,7 @@ class TrelloPanel(QFrame):
     def disconnect_trello(self) -> None:
         """End the in-memory Trello session without changing saved credentials."""
         self.service = None
+        self._cards_by_id.clear()
         self.status.setText("Not connected")
         self.connect_button.setText("Connect Trello")
         self._fill(self.board, (), "Connect to browse boards…")

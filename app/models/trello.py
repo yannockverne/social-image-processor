@@ -28,6 +28,7 @@ class TrelloList:
 class TrelloCard:
     id: str
     name: str
+    url: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
