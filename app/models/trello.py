@@ -31,6 +31,16 @@ class TrelloCard:
 
 
 @dataclass(frozen=True, slots=True)
+class TrelloChecklistSyncResult:
+    """Outcome of completing the processing items on an existing checklist."""
+
+    completed: tuple[str, ...] = ()
+    already_complete: tuple[str, ...] = ()
+    missing: tuple[str, ...] = ()
+    failed: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class TrelloAttachmentResult:
     """Per-file outcome so a multi-file upload can report partial failure."""
 

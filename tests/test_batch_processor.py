@@ -11,6 +11,7 @@ import app.services.batch_processor as batch_module  # noqa: E402
 from app.core.errors import OutputWriteError  # noqa: E402
 from app.core.watermarking import WatermarkCatalog  # noqa: E402
 from app.models.image_item import ImageItem  # noqa: E402
+from app.models.trello import TrelloChecklistSyncResult  # noqa: E402
 from app.models.results import (  # noqa: E402
     BatchStatistics,
     ExportStatus,
@@ -302,6 +303,12 @@ class FakeTrello:
     def update_card_description(self, card_id, description):
         self.updates.append((card_id, description))
 
+    def complete_processing_checklist(self, card_id):
+        assert card_id == "card"
+        return TrelloChecklistSyncResult(
+            completed=("Photos", "Image selection", "Retouching")
+        )
+
 
 def test_r2_and_trello_sync_once_in_export_order(tmp_path: Path) -> None:
     source = tmp_path / "source.png"
@@ -377,3 +384,26 @@ def test_trello_failure_does_not_invalidate_exports_or_uploads(tmp_path: Path) -
     assert result.statistics.successful_output_count == 1
     assert result.uploads[0].success
     assert "offline" in result.trello_error
+
+
+def test_checklist_failure_does_not_invalidate_successful_processing(
+    tmp_path: Path,
+) -> None:
+    source = tmp_path / "source.png"
+    Image.new("RGB", (8, 4)).save(source)
+    trello = FakeTrello()
+    trello.complete_processing_checklist = lambda *_args: (_ for _ in ()).throw(
+        RuntimeError("checklist offline")
+    )
+    result = _run(
+        [_source(source, x=True)],
+        tmp_path / "out",
+        r2_upload_service=FakeR2(["https://pub/X_01.jpg"]),
+        trello_service=trello,
+        trello_card_id="card",
+    )
+    assert result.statistics.successful_output_count == 1
+    assert result.uploads[0].success
+    assert result.trello_urls_updated == 1
+    assert "checklist offline" in result.trello_checklist_error
+    assert result.exports[0].output_path.exists()

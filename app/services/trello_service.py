@@ -21,9 +21,9 @@ from app.models.trello import (
     TrelloBoard,
     TrelloCard,
     TrelloCredentials,
+    TrelloChecklistSyncResult,
     TrelloList,
 )
-
 
 PREPARATION_LIST_NAME = "🛠️ À préparer"
 PUBLICATION_CHECKLIST_NAME = "Publication"
@@ -35,6 +35,7 @@ PUBLICATION_CHECKLIST_ITEMS = (
     "X post published",
     "Instagram post published",
 )
+PROCESSING_CHECKLIST_ITEMS = PUBLICATION_CHECKLIST_ITEMS[:3]
 
 
 def build_post_description(x_text: str, instagram_text: str) -> str:
@@ -316,3 +317,73 @@ class TrelloService:
             self._raise_transport_error(error)
         except (json.JSONDecodeError, UnicodeError) as error:
             raise TrelloError("Trello returned an invalid response.") from error
+
+    def complete_processing_checklist(self, card_id: str) -> TrelloChecklistSyncResult:
+        """Complete canonical processing items without changing card structure.
+
+        Update failures are collected per item so one failed request does not stop
+        the remaining canonical items from being attempted. Checklist read
+        failures remain service errors for the caller to report.
+        """
+        checklists = self._get(f"/cards/{card_id}/checklists")
+        checklist = next(
+            (
+                value
+                for value in checklists
+                if value.get("name") == PUBLICATION_CHECKLIST_NAME
+                and isinstance(value.get("checkItems"), list)
+            ),
+            None,
+        )
+        if checklist is None:
+            return TrelloChecklistSyncResult(missing=PROCESSING_CHECKLIST_ITEMS)
+
+        items_by_name = {
+            item.get("name"): item
+            for item in checklist["checkItems"]
+            if isinstance(item, dict)
+        }
+        completed: list[str] = []
+        already_complete: list[str] = []
+        missing: list[str] = []
+        failed: list[str] = []
+        for name in PROCESSING_CHECKLIST_ITEMS:
+            item = items_by_name.get(name)
+            if item is None or not isinstance(item.get("id"), str):
+                missing.append(name)
+            elif item.get("state") == "complete":
+                already_complete.append(name)
+            else:
+                try:
+                    self._put(
+                        f"/cards/{card_id}/checkItem/{item['id']}", state="complete"
+                    )
+                    completed.append(name)
+                except TrelloError:
+                    failed.append(name)
+        return TrelloChecklistSyncResult(
+            tuple(completed),
+            tuple(already_complete),
+            tuple(missing),
+            tuple(failed),
+        )
+
+    def _put(self, path: str, **parameters) -> dict:
+        query = urlencode(
+            {
+                **parameters,
+                "key": self.credentials.api_key,
+                "token": self.credentials.token,
+            }
+        )
+        request = Request(f"{self.base_url}{path}?{query}", method="PUT")
+        try:
+            with urlopen(request, timeout=self.timeout) as response:
+                value = json.load(response)
+        except (HTTPError, URLError, TimeoutError, OSError) as error:
+            self._raise_transport_error(error)
+        except (json.JSONDecodeError, UnicodeError) as error:
+            raise TrelloError("Trello returned an invalid response.") from error
+        if not isinstance(value, dict):
+            raise TrelloError("Trello returned an unexpected response.")
+        return value

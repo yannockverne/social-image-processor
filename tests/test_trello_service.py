@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import json
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 
@@ -100,6 +101,14 @@ def test_post_description_keeps_empty_platform_sections(
 
 
 def test_create_post_card_adds_unchecked_publication_checklist(monkeypatch) -> None:
+    assert PUBLICATION_CHECKLIST_ITEMS == (
+        "Photos",
+        "Image selection",
+        "Retouching",
+        "Instagram + X copy",
+        "X post published",
+        "Instagram post published",
+    )
     requests = []
     responses = iter(
         [
@@ -162,3 +171,130 @@ def test_checklist_failure_does_not_claim_full_creation(monkeypatch) -> None:
         TrelloService(TrelloCredentials("key", "token")).create_post_card(
             "board", "Title", "", ""
         )
+
+
+def _checklist(items):
+    return json.dumps(
+        [{"id": "check", "name": "Publication", "checkItems": items}]
+    ).encode()
+
+
+def test_processing_checklist_completes_only_incomplete_targets(monkeypatch) -> None:
+    requests = []
+    items = [
+        {"id": "photos", "name": "Photos", "state": "incomplete"},
+        {"id": "selection", "name": "Image selection", "state": "complete"},
+        {"id": "retouch", "name": "Retouching", "state": "incomplete"},
+        {"id": "copy", "name": "Instagram + X copy", "state": "incomplete"},
+        {"id": "other", "name": "Unrelated", "state": "incomplete"},
+    ]
+    responses = iter(
+        (_checklist(items), b'{"state":"complete"}', b'{"state":"complete"}')
+    )
+
+    def open_request(request, timeout):
+        requests.append(request)
+        return Response(next(responses))
+
+    monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
+    result = TrelloService(
+        TrelloCredentials("key", "token")
+    ).complete_processing_checklist("card")
+
+    assert result.completed == ("Photos", "Retouching")
+    assert result.already_complete == ("Image selection",)
+    assert result.missing == ()
+    assert [request.get_method() for request in requests] == ["GET", "PUT", "PUT"]
+    assert "checkItem/photos" in requests[1].full_url
+    assert "checkItem/retouch" in requests[2].full_url
+    assert all("state=complete" in request.full_url for request in requests[1:])
+    assert not any(
+        "copy" in request.full_url or "other" in request.full_url
+        for request in requests[1:]
+    )
+
+
+def test_processing_checklist_completes_all_three_targets(monkeypatch) -> None:
+    items = [
+        {"id": str(index), "name": name, "state": "incomplete"}
+        for index, name in enumerate(PUBLICATION_CHECKLIST_ITEMS)
+    ]
+    responses = iter([_checklist(items), *[b'{"state":"complete"}'] * 3])
+    monkeypatch.setattr(
+        "app.services.trello_service.urlopen",
+        lambda *_args, **_kwargs: Response(next(responses)),
+    )
+    result = TrelloService(
+        TrelloCredentials("key", "token")
+    ).complete_processing_checklist("card")
+    assert result.completed == ("Photos", "Image selection", "Retouching")
+
+
+def test_processing_checklist_reports_missing_items_without_creating(
+    monkeypatch,
+) -> None:
+    requests = []
+
+    def open_request(request, timeout):
+        requests.append(request)
+        return Response(
+            _checklist([{"id": "photos", "name": "Photos", "state": "complete"}])
+        )
+
+    monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
+    result = TrelloService(
+        TrelloCredentials("key", "token")
+    ).complete_processing_checklist("card")
+    assert result.missing == ("Image selection", "Retouching")
+    assert len(requests) == 1
+
+
+def test_processing_card_without_publication_checklist_is_unchanged(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.services.trello_service.urlopen",
+        lambda *_args, **_kwargs: Response(b"[]"),
+    )
+    result = TrelloService(
+        TrelloCredentials("key", "token")
+    ).complete_processing_checklist("card")
+    assert result.missing == ("Photos", "Image selection", "Retouching")
+
+
+def test_processing_checklist_read_failure_is_reported(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.trello_service.urlopen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(URLError("offline")),
+    )
+    with pytest.raises(TrelloError, match="unavailable"):
+        TrelloService(TrelloCredentials("key", "token")).complete_processing_checklist(
+            "card"
+        )
+
+
+def test_processing_checklist_continues_after_partial_update_failure(
+    monkeypatch,
+) -> None:
+    items = [
+        {"id": name.lower(), "name": name, "state": "incomplete"}
+        for name in ("Photos", "Image selection", "Retouching")
+    ]
+    calls = 0
+
+    def open_request(request, timeout):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return Response(_checklist(items))
+        if calls == 2:
+            raise HTTPError("url", 500, "failure", {}, None)
+        return Response(b'{"state":"complete"}')
+
+    monkeypatch.setattr("app.services.trello_service.urlopen", open_request)
+    result = TrelloService(
+        TrelloCredentials("key", "token")
+    ).complete_processing_checklist("card")
+    assert result.failed == ("Photos",)
+    assert result.completed == ("Image selection", "Retouching")
+    assert calls == 4
